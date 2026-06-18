@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aircraft_transit}
+      POSTGRES_USER: ${POSTGRES_USER:-aircraft}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aircraft}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aircraft} -d ${POSTGRES_DB:-aircraft_transit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      ADSBFI_BASE: http://adsb-feeder:9988
+      UI_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      adsb-feeder:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  ui:
+    build: .
+    command: ["python", "src/ui_server.py"]
+    env_file:
+      - .env
+    environment:
+      UI_HOST: 0.0.0.0
+      UI_PORT: 9999
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "9999:9999"
+    volumes:
+      - ./logs:/app/logs
+
+  adsb-feeder:
+    build:
+      context: .
+      dockerfile: Dockerfile.feeder
+    env_file:
+      - .env
+    environment:
+      ADSB_FEEDER_UPSTREAM_BASE: https://opendata.adsb.fi/api
+      ADSB_FEEDER_PORT: 9988
+    restart: unless-stopped
+    ports:
+      - "9988:9988"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9988/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres-data:
