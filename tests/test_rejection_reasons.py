@@ -85,3 +85,13 @@ def test_notification_prefers_nearest_point_for_same_event() -> None:
 
     assert ordered[0] is nearer
     assert notification_event_key(farther) == notification_event_key(nearer)
+
+
+def test_notification_event_key_uses_wide_event_window() -> None:
+    settings = load_settings()
+    first = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    second = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    first.transit_time_utc = datetime(2026, 6, 18, 19, 28, 50, tzinfo=timezone.utc)
+    second.transit_time_utc = datetime(2026, 6, 18, 19, 29, 5, tzinfo=timezone.utc)
+
+    assert notification_event_key(first) == notification_event_key(second)

@@ -4,13 +4,13 @@ from models import AircraftState, TransitCandidate
 from telegram import SentCandidate, TelegramNotifier
 
 
-def _candidate(*, status="OBSERVATION_CANDIDATE", distance=1.0, offset=0.2):
+def _candidate(*, status="OBSERVATION_CANDIDATE", distance=1.0, offset=0.2, transit_time=None):
     now = datetime.now(timezone.utc)
     aircraft = AircraftState("abc123", "TEST1", 52.0, 21.0, 30000, 400, 90, 0, None, None, None, now, {})
     return TransitCandidate(
         aircraft=aircraft,
         body="Sun",
-        transit_time_utc=now + timedelta(minutes=15),
+        transit_time_utc=transit_time or now + timedelta(minutes=15),
         observer_lat=52.0,
         observer_lon=21.0,
         observer_distance_km=distance,
@@ -52,3 +52,13 @@ def test_notifier_updates_when_candidate_becomes_alert() -> None:
     candidate = _candidate(status="ALERT_READY", distance=0.5, offset=0.2)
 
     assert notifier._should_update(previous, candidate, 300, 900, 180, 0.5, 0.3)
+
+
+def test_notifier_suppresses_same_aircraft_body_within_event_window() -> None:
+    notifier = TelegramNotifier(token="", chat_id="")
+    base_time = datetime(2026, 6, 18, 19, 28, 50, tzinfo=timezone.utc)
+    first = _candidate(transit_time=base_time, distance=6.0, offset=0.06)
+    second = _candidate(transit_time=base_time + timedelta(seconds=15), distance=7.5, offset=0.27)
+
+    assert notifier.send_candidate(first, "first", 900, 180, 0.5, 0.3, 600)
+    assert not notifier.send_candidate(second, "second", 900, 180, 0.5, 0.3, 600)

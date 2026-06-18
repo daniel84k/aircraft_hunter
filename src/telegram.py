@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import requests
 
-from alerts import rounded_transit_time
 from models import TransitCandidate
 
 
@@ -72,9 +71,10 @@ class TelegramNotifier:
         update_cooldown_seconds: int,
         min_distance_improvement_km: float,
         min_offset_improvement_ratio: float,
+        event_window_seconds: int = 600,
     ) -> bool:
-        event_time = rounded_transit_time(candidate.transit_time_utc, 120).isoformat()
-        key = (candidate.aircraft.icao.lower(), candidate.body.lower(), event_time)
+        event_slot = int(candidate.transit_time_utc.timestamp()) // max(60, event_window_seconds)
+        key = (candidate.aircraft.icao.lower(), candidate.body.lower(), str(event_slot))
         now = time.monotonic()
         previous = self._sent_candidates.get(key)
         if previous and not self._should_update(

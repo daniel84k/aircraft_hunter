@@ -53,8 +53,8 @@ def cycle_log(cycle_id: int, step: int, label: str, message: str, *args) -> None
     LOG.info("cycle=%s step=%s/%s %s | " + message, cycle_id, step, STEPS_TOTAL, label, *args)
 
 
-def notification_event_key(candidate: TransitCandidate) -> tuple[str, str, int]:
-    event_slot = int(candidate.transit_time_utc.timestamp()) // 120
+def notification_event_key(candidate: TransitCandidate, event_window_seconds: int = 600) -> tuple[str, str, int]:
+    event_slot = int(candidate.transit_time_utc.timestamp()) // max(60, event_window_seconds)
     return (candidate.aircraft.icao.lower(), candidate.body.lower(), event_slot)
 
 
@@ -464,9 +464,17 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
         notified_candidates_this_cycle = 0
         notified_events_this_cycle: set[tuple[str, str, int]] = set()
         for candidate in all_candidates[:50]:
-            if candidate.status == "ALERT_READY" and storage.alert_exists(candidate.dedupe_key):
-                candidate.status = "REJECTED"
-                candidate.rejection_reason = "DUPLICATE_ALERT"
+            if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+                duplicate_event = storage.alert_event_exists(
+                    icao=candidate.aircraft.icao,
+                    body=candidate.body,
+                    transit_time_utc=candidate.transit_time_utc,
+                    event_window_seconds=settings.locked_alert_window_seconds,
+                    confirmed_only=(candidate.status == "ALERT_READY"),
+                )
+                if duplicate_event or (candidate.status == "ALERT_READY" and storage.alert_exists(candidate.dedupe_key)):
+                    candidate.status = "REJECTED"
+                    candidate.rejection_reason = "DUPLICATE_ALERT"
             candidate_id = storage.insert_candidate(run_id, candidate)
             saved_count += 1
             if settings.run_mode == "debug":
@@ -483,7 +491,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                     candidate.score,
                 )
             if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
-                event_key = notification_event_key(candidate)
+                event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
                 if event_key in notified_events_this_cycle:
                     continue
                 if candidate.status == "OBSERVATION_CANDIDATE" and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
@@ -498,6 +506,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                         settings.telegram_update_cooldown_seconds,
                         settings.telegram_update_min_distance_improvement_km,
                         settings.telegram_update_min_offset_improvement_ratio,
+                        settings.locked_alert_window_seconds,
                     )
                 if not notification_sent:
                     continue

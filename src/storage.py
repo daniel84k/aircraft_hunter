@@ -149,6 +149,34 @@ class Storage:
             cur.execute("SELECT 1 FROM alerts WHERE dedupe_key=%s LIMIT 1", (dedupe_key,))
             return cur.fetchone() is not None
 
+    def alert_event_exists(
+        self,
+        *,
+        icao: str,
+        body: str,
+        transit_time_utc: datetime,
+        event_window_seconds: int,
+        confirmed_only: bool = False,
+    ) -> bool:
+        window = max(60, int(event_window_seconds))
+        event_slot = int(transit_time_utc.timestamp()) // window
+        confirmed_filter = "AND tc.rejection_reason IS NULL" if confirmed_only else ""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT 1
+                FROM alerts a
+                JOIN transit_candidates tc ON tc.id = a.transit_candidate_id
+                WHERE lower(tc.icao) = lower(%s)
+                  AND lower(tc.body) = lower(%s)
+                  AND floor(extract(epoch from tc.transit_time_utc) / %s) = %s
+                  {confirmed_filter}
+                LIMIT 1
+                """,
+                (icao, body, window, event_slot),
+            )
+            return cur.fetchone() is not None
+
     def insert_alert(self, candidate_id: int, message: str, dedupe_key: str, printed_at: datetime) -> None:
         with self.conn.cursor() as cur:
             cur.execute(
