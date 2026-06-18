@@ -21,8 +21,8 @@ def test_rejection_reasons_include_required_values() -> None:
         "NEAR_DESTINATION_AIRPORT",
         "NEAR_EPWA_APPROACH",
         "NEAR_EPWA_DEPARTURE",
-        "NEAR_EPML_APPROACH",
-        "NEAR_EPML_DEPARTURE",
+        "NEAR_EPMO_APPROACH",
+        "NEAR_EPMO_DEPARTURE",
         "DUPLICATE_ALERT",
         "INSUFFICIENT_DATA",
     }
