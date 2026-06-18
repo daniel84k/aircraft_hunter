@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from config import load_settings
 from models import AircraftState, TransitCandidate
 from main import REJECTION_REASONS
-from main import classify_candidate, notification_event_key, notification_sort_key, reachable_relocation_km
+from main import classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km
 
 
 def test_rejection_reasons_include_required_values() -> None:
@@ -19,6 +19,10 @@ def test_rejection_reasons_include_required_values() -> None:
         "OFFSET_TOO_LARGE",
         "NEAR_ORIGIN_AIRPORT",
         "NEAR_DESTINATION_AIRPORT",
+        "NEAR_EPWA_APPROACH",
+        "NEAR_EPWA_DEPARTURE",
+        "NEAR_EPML_APPROACH",
+        "NEAR_EPML_DEPARTURE",
         "DUPLICATE_ALERT",
         "INSUFFICIENT_DATA",
     }
@@ -95,3 +99,16 @@ def test_notification_event_key_uses_wide_event_window() -> None:
     second.transit_time_utc = datetime(2026, 6, 18, 19, 29, 5, tzinfo=timezone.utc)
 
     assert notification_event_key(first) == notification_event_key(second)
+
+
+def test_better_notification_allows_large_offset_improvement() -> None:
+    settings = load_settings()
+    candidate = _candidate(settings, score=0.8, separation=0.078 * 2 * 0.2725, distance=0.25, body_elevation=20)
+    previous_event = {"best_distance_km": 0.5, "best_offset_body_diameters": 0.113}
+
+    assert is_better_notification(
+        candidate,
+        previous_event,
+        min_distance_improvement_km=0.5,
+        min_offset_improvement_ratio=0.30,
+    )

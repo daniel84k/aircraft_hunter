@@ -38,3 +38,15 @@ def test_format_alert_includes_flightradar_link() -> None:
     message = format_alert(_candidate())
 
     assert "Flightradar24 : https://www.flightradar24.com/QTR17Q" in message
+
+
+def test_format_alert_labels_warsaw_time() -> None:
+    message = format_alert(_candidate())
+
+    assert "Transit Warsaw:" in message
+
+
+def test_format_alert_can_label_better_update() -> None:
+    message = format_alert(_candidate(), better=True)
+
+    assert "BETTER TRANSIT ALERT" in message

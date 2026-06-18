@@ -10,6 +10,10 @@ from models import AircraftState, TransitCandidate
 LOG = logging.getLogger(__name__)
 
 
+def _event_slot(transit_time_utc: datetime, event_window_seconds: int) -> int:
+    return int(transit_time_utc.timestamp()) // max(60, int(event_window_seconds))
+
+
 class Storage:
     def __init__(self, conn) -> None:
         self.conn = conn
@@ -158,33 +162,64 @@ class Storage:
         event_window_seconds: int,
         confirmed_only: bool = False,
     ) -> bool:
+        return self.alert_event_summary(
+            icao=icao,
+            body=body,
+            transit_time_utc=transit_time_utc,
+            event_window_seconds=event_window_seconds,
+            confirmed_only=confirmed_only,
+        ) is not None
+
+    def alert_event_summary(
+        self,
+        *,
+        icao: str,
+        body: str,
+        transit_time_utc: datetime,
+        event_window_seconds: int,
+        confirmed_only: bool = False,
+    ) -> dict[str, float] | None:
         window = max(60, int(event_window_seconds))
-        event_slot = int(transit_time_utc.timestamp()) // window
+        event_slot = _event_slot(transit_time_utc, window)
         confirmed_filter = "AND tc.rejection_reason IS NULL" if confirmed_only else ""
         with self.conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT 1
+                SELECT
+                    min(tc.observer_distance_km) AS best_distance_km,
+                    min(tc.offset_body_diameters) AS best_offset_body_diameters
                 FROM alerts a
                 JOIN transit_candidates tc ON tc.id = a.transit_candidate_id
                 WHERE lower(tc.icao) = lower(%s)
                   AND lower(tc.body) = lower(%s)
                   AND floor(extract(epoch from tc.transit_time_utc) / %s) = %s
                   {confirmed_filter}
-                LIMIT 1
                 """,
                 (icao, body, window, event_slot),
             )
-            return cur.fetchone() is not None
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return None
+            return {
+                "best_distance_km": float(row[0]),
+                "best_offset_body_diameters": float(row[1]),
+            }
 
-    def insert_alert(self, candidate_id: int, message: str, dedupe_key: str, printed_at: datetime) -> None:
+    def insert_alert(
+        self,
+        candidate_id: int,
+        message: str,
+        dedupe_key: str,
+        printed_at: datetime,
+        alert_type: str = "CONSOLE",
+    ) -> None:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO alerts (transit_candidate_id, alert_type, printed_at, message, dedupe_key)
                 VALUES (%s,%s,%s,%s,%s)
                 """,
-                (candidate_id, "CONSOLE", printed_at, message, dedupe_key),
+                (candidate_id, alert_type, printed_at, message, dedupe_key),
             )
             cur.execute(
                 """

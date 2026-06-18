@@ -7,6 +7,7 @@ import math
 import time
 
 from adsb_client import ADSBClient
+from airport_filter import classify_airport_traffic, parse_airport_filter_profiles
 from alerts import dedupe_key, format_alert
 from config import Settings, load_settings
 from db import connect, run_migrations
@@ -38,6 +39,10 @@ REJECTION_REASONS = {
     "OFFSET_TOO_LARGE",
     "NEAR_ORIGIN_AIRPORT",
     "NEAR_DESTINATION_AIRPORT",
+    "NEAR_EPWA_APPROACH",
+    "NEAR_EPWA_DEPARTURE",
+    "NEAR_EPML_APPROACH",
+    "NEAR_EPML_DEPARTURE",
     "DUPLICATE_ALERT",
     "INSUFFICIENT_DATA",
 }
@@ -61,6 +66,25 @@ def notification_event_key(candidate: TransitCandidate, event_window_seconds: in
 def notification_sort_key(candidate: TransitCandidate) -> tuple[int, float, float, float]:
     status_rank = 0 if candidate.status == "ALERT_READY" else 1
     return (status_rank, candidate.observer_distance_km, candidate.angular_separation_deg, -candidate.score)
+
+
+def is_better_notification(
+    candidate: TransitCandidate,
+    previous_event: dict[str, float] | None,
+    *,
+    min_distance_improvement_km: float,
+    min_offset_improvement_ratio: float,
+) -> bool:
+    if not previous_event:
+        return False
+    distance_improvement = previous_event["best_distance_km"] - candidate.observer_distance_km
+    if distance_improvement >= min_distance_improvement_km:
+        return True
+    previous_offset = previous_event["best_offset_body_diameters"]
+    if previous_offset <= 0:
+        return False
+    offset_improvement = previous_offset - candidate.offset_body_diameters
+    return offset_improvement / previous_offset >= min_offset_improvement_ratio
 
 
 def classify_candidate(candidate: TransitCandidate, settings: Settings, stable: bool) -> TransitCandidate:
@@ -192,6 +216,7 @@ def coarse_geometry_check(settings: Settings, path, ephemeris_cache: dict):
 def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, histories, notifier: TelegramNotifier | None = None) -> None:
     cycle_started = datetime.now(timezone.utc)
     cycle_id = int(cycle_started.timestamp())
+    airport_profiles = parse_airport_filter_profiles(settings.airport_traffic_filters)
     current_bodies = get_body_states(settings.user_lat, settings.user_lon, cycle_started)
     visible_bodies = [
         body for body in current_bodies if body.elevation_deg >= settings.standby_body_elevation_deg
@@ -259,6 +284,41 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                     len(history),
                 )
             reject = rejection_reason_for_unstable(ac, history)
+            airport_match = classify_airport_traffic(ac, airport_profiles)
+            if airport_match:
+                phase_name = "APPROACH" if airport_match.phase == "APP" else "DEPARTURE"
+                airport_reason = f"NEAR_{airport_match.airport_code}_{phase_name}"
+                if airport_match.mode == "strict":
+                    cycle_log(
+                        cycle_id,
+                        2,
+                        "FILTER_REJECTED",
+                        "aircraft=%s callsign=%s reason=%s airport=%s phase=%s distance_nm=%.1f track_delta_deg=%.0f mode=%s",
+                        ac.icao,
+                        ac.callsign or "-",
+                        airport_reason,
+                        airport_match.airport_code,
+                        airport_match.phase,
+                        airport_match.distance_nm,
+                        airport_match.track_delta_deg,
+                        airport_match.mode,
+                    )
+                    continue
+                if settings.run_mode == "debug":
+                    cycle_log(
+                        cycle_id,
+                        2,
+                        "AIRPORT_SOFT_FLAG",
+                        "aircraft=%s callsign=%s reason=%s airport=%s phase=%s distance_nm=%.1f track_delta_deg=%.0f mode=%s",
+                        ac.icao,
+                        ac.callsign or "-",
+                        airport_reason,
+                        airport_match.airport_code,
+                        airport_match.phase,
+                        airport_match.distance_nm,
+                        airport_match.track_delta_deg,
+                        airport_match.mode,
+                    )
             if reject and stable_score < 0.65:
                 cycle_log(
                     cycle_id,
@@ -464,15 +524,26 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
         notified_candidates_this_cycle = 0
         notified_events_this_cycle: set[tuple[str, str, int]] = set()
         for candidate in all_candidates[:50]:
+            alert_type = "CONSOLE"
+            is_better_alert = False
             if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
-                duplicate_event = storage.alert_event_exists(
+                previous_event = storage.alert_event_summary(
                     icao=candidate.aircraft.icao,
                     body=candidate.body,
                     transit_time_utc=candidate.transit_time_utc,
                     event_window_seconds=settings.locked_alert_window_seconds,
                     confirmed_only=(candidate.status == "ALERT_READY"),
                 )
-                if duplicate_event or (candidate.status == "ALERT_READY" and storage.alert_exists(candidate.dedupe_key)):
+                duplicate_event = previous_event is not None
+                is_better_alert = is_better_notification(
+                    candidate,
+                    previous_event,
+                    min_distance_improvement_km=settings.telegram_update_min_distance_improvement_km,
+                    min_offset_improvement_ratio=settings.telegram_update_min_offset_improvement_ratio,
+                )
+                if duplicate_event and is_better_alert:
+                    alert_type = "BETTER"
+                elif duplicate_event or (candidate.status == "ALERT_READY" and storage.alert_exists(candidate.dedupe_key)):
                     candidate.status = "REJECTED"
                     candidate.rejection_reason = "DUPLICATE_ALERT"
             candidate_id = storage.insert_candidate(run_id, candidate)
@@ -496,7 +567,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                     continue
                 if candidate.status == "OBSERVATION_CANDIDATE" and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
                     continue
-                message = format_alert(candidate)
+                message = format_alert(candidate, better=is_better_alert)
                 notification_sent = True
                 if notifier:
                     notification_sent = notifier.send_candidate(
@@ -511,7 +582,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                 if not notification_sent:
                     continue
                 print(message, flush=True)
-                storage.insert_alert(candidate_id, message, candidate.dedupe_key, datetime.now(timezone.utc))
+                storage.insert_alert(candidate_id, message, candidate.dedupe_key, datetime.now(timezone.utc), alert_type)
                 alert_count += 1
                 if candidate.status == "OBSERVATION_CANDIDATE":
                     notified_candidates_this_cycle += 1

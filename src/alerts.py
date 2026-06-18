@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from geo import haversine_distance_km
 from models import TransitCandidate
@@ -37,30 +38,33 @@ def flightradar_url(candidate: TransitCandidate) -> str:
     return f"https://www.flightradar24.com/{quote(flight_id)}"
 
 
-def format_alert(candidate: TransitCandidate) -> str:
+def format_alert(candidate: TransitCandidate, *, better: bool = False) -> str:
     aircraft = candidate.aircraft
-    local_time = candidate.transit_time_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    warsaw_time = candidate.transit_time_utc.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m-%d %H:%M:%S %Z")
     seconds = max(0, int((candidate.transit_time_utc - datetime.now(timezone.utc)).total_seconds()))
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
-    title = "TRANSIT ALERT" if candidate.status == "ALERT_READY" else "OBSERVATION CANDIDATE"
+    if better:
+        title = "BETTER TRANSIT ALERT"
+    else:
+        title = "TRANSIT ALERT" if candidate.status == "ALERT_READY" else "OBSERVATION CANDIDATE"
     return f"""============================================================
 {title}
 ============================================================
 Object        : {candidate.body}
 Aircraft      : {aircraft.callsign or '-'} / {aircraft.aircraft_type or '-'} / icao {aircraft.icao}
-Transit local : {local_time}
+Transit Warsaw: {warsaw_time}
 Time to go    : {h:02d}:{m:02d}:{s:02d}
 
 Go to:
 {candidate.observer_lat:.6f}, {candidate.observer_lon:.6f}
 Distance      : {candidate.observer_distance_km:.1f} km
 
-    Google Maps   : {candidate.google_maps_url}
-    Navigation    : {candidate.google_nav_url}
-    Flightradar24 : {flightradar_url(candidate)}
+Google Maps   : {candidate.google_maps_url}
+Navigation    : {candidate.google_nav_url}
+Flightradar24 : {flightradar_url(candidate)}
 
-    Offset        : {candidate.offset_body_diameters:.2f} {candidate.body} diameters
+Offset        : {candidate.offset_body_diameters:.2f} {candidate.body} diameters
 Score         : {candidate.score:.2f}
 Confidence    : {candidate.confidence:.2f}
 
