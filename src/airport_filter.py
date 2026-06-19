@@ -72,11 +72,14 @@ def classify_airport_traffic(
     *,
     bearing_threshold_deg: float = 35.0,
     terminal_altitude_ft: float = 12000.0,
+    terminal_max_altitude_ft: float = 18000.0,
     vertical_rate_threshold_fpm: float = 300.0,
 ) -> AirportTrafficMatch | None:
     if aircraft.track_deg is None:
         return None
     altitude_ft = aircraft.altitude_ft or 0.0
+    if altitude_ft > terminal_max_altitude_ft:
+        return None
     vertical_rate = aircraft.vertical_rate_fpm or 0.0
     terminal_profile = altitude_ft <= terminal_altitude_ft
 

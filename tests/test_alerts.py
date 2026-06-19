@@ -50,3 +50,11 @@ def test_format_alert_can_label_better_update() -> None:
     message = format_alert(_candidate(), better=True)
 
     assert "BETTER TRANSIT ALERT" in message
+
+
+def test_format_alert_uses_short_boundaries() -> None:
+    lines = format_alert(_candidate()).splitlines()
+
+    assert lines[0] == "==="
+    assert lines[-1] == "==="
+    assert "============================================================" not in lines

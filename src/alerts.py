@@ -48,9 +48,8 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False) -> str:
         title = "BETTER TRANSIT ALERT"
     else:
         title = "TRANSIT ALERT" if candidate.status == "ALERT_READY" else "OBSERVATION CANDIDATE"
-    return f"""============================================================
+    return f"""===
 {title}
-============================================================
 Object        : {candidate.body}
 Aircraft      : {aircraft.callsign or '-'} / {aircraft.aircraft_type or '-'} / icao {aircraft.icao}
 Transit Warsaw: {warsaw_time}
@@ -71,4 +70,4 @@ Confidence    : {candidate.confidence:.2f}
 Aircraft alt  : {candidate.aircraft_altitude_ft or 0:.0f} ft
 Aircraft range: {candidate.aircraft_range_km or 0:.1f} km
 Body elevation: {candidate.body_elevation_deg:.1f} deg
-============================================================"""
+==="""

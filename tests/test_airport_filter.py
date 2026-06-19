@@ -41,6 +41,13 @@ def test_epwa_overflight_is_not_terminal_traffic() -> None:
     assert classify_airport_traffic(aircraft, profiles) is None
 
 
+def test_epwa_high_altitude_descent_is_not_terminal_traffic() -> None:
+    profiles = parse_airport_filter_profiles("EPWA:strict:35")
+    aircraft = _aircraft(lat=52.30, lon=20.97, track=180, altitude=30000, vertical_rate=-1200)
+
+    assert classify_airport_traffic(aircraft, profiles) is None
+
+
 def test_epmo_soft_departure_is_matched_without_strict_mode() -> None:
     profiles = parse_airport_filter_profiles("EPMO:soft:12")
     aircraft = _aircraft(lat=52.50, lon=20.65, track=0, altitude=3000, vertical_rate=700)

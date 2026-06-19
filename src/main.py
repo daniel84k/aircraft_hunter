@@ -129,6 +129,21 @@ def classify_candidate(candidate: TransitCandidate, settings: Settings, stable: 
     return candidate
 
 
+def airport_rejection_reason(match) -> str:
+    phase_name = "APPROACH" if match.phase == "APP" else "DEPARTURE"
+    return f"NEAR_{match.airport_code}_{phase_name}"
+
+
+def suppress_airport_traffic_alert(candidate: TransitCandidate, airport_match) -> TransitCandidate:
+    if airport_match is None or airport_match.mode != "strict":
+        return candidate
+    if candidate.status not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+        return candidate
+    candidate.status = "CANDIDATE_STORED"
+    candidate.rejection_reason = airport_rejection_reason(airport_match)
+    return candidate
+
+
 def build_candidate(raw, settings: Settings, stability: float) -> TransitCandidate:
     aircraft, point, body, separation, offset = raw
     lead_time = int((point.timestamp - aircraft.timestamp).total_seconds())
@@ -259,6 +274,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
     all_candidates: list[TransitCandidate] = []
     ephemeris_cache = {}
     geometry_inputs = []
+    airport_matches = {}
 
     try:
         for ac in aircraft:
@@ -286,14 +302,14 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
             reject = rejection_reason_for_unstable(ac, history)
             airport_match = classify_airport_traffic(ac, airport_profiles)
             if airport_match:
-                phase_name = "APPROACH" if airport_match.phase == "APP" else "DEPARTURE"
-                airport_reason = f"NEAR_{airport_match.airport_code}_{phase_name}"
+                airport_reason = airport_rejection_reason(airport_match)
+                airport_matches[ac.icao] = airport_match
                 if airport_match.mode == "strict":
                     cycle_log(
                         cycle_id,
                         2,
-                        "FILTER_REJECTED",
-                        "aircraft=%s callsign=%s reason=%s airport=%s phase=%s distance_nm=%.1f track_delta_deg=%.0f mode=%s",
+                        "AIRPORT_STRICT_FLAG",
+                        "aircraft=%s callsign=%s reason=%s airport=%s phase=%s distance_nm=%.1f track_delta_deg=%.0f mode=%s action=suppress_alert_only",
                         ac.icao,
                         ac.callsign or "-",
                         airport_reason,
@@ -303,7 +319,6 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                         airport_match.track_delta_deg,
                         airport_match.mode,
                     )
-                    continue
                 if settings.run_mode == "debug":
                     cycle_log(
                         cycle_id,
@@ -499,6 +514,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
             for raw in sorted(raw_candidates, key=lambda item: item[3])[:MAX_RAW_CANDIDATES_TO_SOLVE]:
                 candidate = build_candidate(raw, settings, stable_score)
                 candidate = classify_candidate(candidate, settings, stable_score >= 0.65)
+                candidate = suppress_airport_traffic_alert(candidate, airport_matches.get(ac.icao))
                 if candidate.rejection_reason == "OBSERVER_POINT_TOO_FAR":
                     candidate.status = "REJECTED"
                 all_candidates.append(candidate)

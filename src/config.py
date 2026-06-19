@@ -79,7 +79,7 @@ def load_settings() -> Settings:
         min_altitude_ft=float(os.getenv("MIN_ALTITUDE_FT", "12000")),
         soft_good_altitude_ft=float(os.getenv("SOFT_GOOD_ALTITUDE_FT", "18000")),
         airport_exclusion_nm=float(os.getenv("AIRPORT_EXCLUSION_NM", "20")),
-        airport_traffic_filters=os.getenv("AIRPORT_TRAFFIC_FILTERS", "EPWA:strict:20,EPMO:soft:12"),
+        airport_traffic_filters=os.getenv("AIRPORT_TRAFFIC_FILTERS", "EPWA:strict:35,EPMO:soft:12"),
         max_vertical_rate_stable_fpm=float(os.getenv("MAX_VERTICAL_RATE_STABLE_FPM", "500")),
         max_track_change_60s_deg=float(os.getenv("MAX_TRACK_CHANGE_60S_DEG", "8")),
         max_gs_change_60s_kt=float(os.getenv("MAX_GS_CHANGE_60S_KT", "40")),
