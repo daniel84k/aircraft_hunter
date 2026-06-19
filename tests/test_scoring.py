@@ -2,7 +2,9 @@ from scoring import lead_time_score, observer_distance_score
 
 
 def test_lead_time_score() -> None:
-    assert lead_time_score(599) == 0.0
+    assert lead_time_score(-1) == 0.0
+    assert lead_time_score(120) == 1.0
+    assert lead_time_score(300) == 1.0
     assert lead_time_score(600) == 1.0
     assert lead_time_score(1800) == 0.8
     assert lead_time_score(3000) == 0.5

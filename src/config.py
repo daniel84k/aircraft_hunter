@@ -20,6 +20,7 @@ class Settings:
     reach_safety: float
     min_lead_time_seconds: int
     preferred_lead_time_seconds: int
+    alert_ready_lead_time_seconds: int
     min_altitude_ft: float
     soft_good_altitude_ft: float
     airport_exclusion_nm: float
@@ -32,6 +33,7 @@ class Settings:
     min_body_elevation_deg: float
     min_body_elevation_deg_for_candidate: float
     observation_candidate_max_separation_deg: float
+    observation_candidate_min_score: float
     telegram_candidate_cooldown_seconds: int
     telegram_max_candidates_per_cycle: int
     telegram_update_cooldown_seconds: int
@@ -76,6 +78,7 @@ def load_settings() -> Settings:
         reach_safety=float(os.getenv("REACH_SAFETY", "0.8")),
         min_lead_time_seconds=int(os.getenv("MIN_LEAD_TIME_SECONDS", "600")),
         preferred_lead_time_seconds=int(os.getenv("PREFERRED_LEAD_TIME_SECONDS", "900")),
+        alert_ready_lead_time_seconds=int(os.getenv("ALERT_READY_LEAD_TIME_SECONDS", "300")),
         min_altitude_ft=float(os.getenv("MIN_ALTITUDE_FT", "12000")),
         soft_good_altitude_ft=float(os.getenv("SOFT_GOOD_ALTITUDE_FT", "18000")),
         airport_exclusion_nm=float(os.getenv("AIRPORT_EXCLUSION_NM", "20")),
@@ -87,7 +90,8 @@ def load_settings() -> Settings:
         max_offset_body_diameters_for_alert=float(os.getenv("MAX_OFFSET_BODY_DIAMETERS_FOR_ALERT", "0.25")),
         min_body_elevation_deg=float(os.getenv("MIN_BODY_ELEVATION_DEG", "8")),
         min_body_elevation_deg_for_candidate=float(os.getenv("MIN_BODY_ELEVATION_DEG_FOR_CANDIDATE", "0")),
-        observation_candidate_max_separation_deg=float(os.getenv("OBSERVATION_CANDIDATE_MAX_SEPARATION_DEG", "0.25")),
+        observation_candidate_max_separation_deg=float(os.getenv("OBSERVATION_CANDIDATE_MAX_SEPARATION_DEG", "0.20")),
+        observation_candidate_min_score=float(os.getenv("OBSERVATION_CANDIDATE_MIN_SCORE", "0.50")),
         telegram_candidate_cooldown_seconds=int(os.getenv("TELEGRAM_CANDIDATE_COOLDOWN_SECONDS", "900")),
         telegram_max_candidates_per_cycle=int(os.getenv("TELEGRAM_MAX_CANDIDATES_PER_CYCLE", "2")),
         telegram_update_cooldown_seconds=int(os.getenv("TELEGRAM_UPDATE_COOLDOWN_SECONDS", "180")),

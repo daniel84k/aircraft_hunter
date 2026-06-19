@@ -17,7 +17,7 @@ def alignment_score(offset_body_diameters: float) -> float:
 
 def lead_time_score(seconds: int) -> float:
     minutes = seconds / 60.0
-    if minutes < 10:
+    if seconds < 0:
         return 0.0
     if minutes <= 25:
         return 1.0

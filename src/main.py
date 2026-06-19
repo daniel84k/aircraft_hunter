@@ -37,6 +37,7 @@ REJECTION_REASONS = {
     "LOW_ALTITUDE",
     "BODY_TOO_LOW",
     "OFFSET_TOO_LARGE",
+    "TOO_EARLY_FOR_ALERT",
     "NEAR_ORIGIN_AIRPORT",
     "NEAR_DESTINATION_AIRPORT",
     "NEAR_EPWA_APPROACH",
@@ -92,27 +93,30 @@ def classify_candidate(candidate: TransitCandidate, settings: Settings, stable: 
     reachable_km = reachable_relocation_km(settings, lead_time)
     practical = (
         stable
-        and lead_time >= settings.min_lead_time_seconds
+        and lead_time >= 0
         and lead_time <= settings.prediction_horizon_seconds
         and candidate.observer_distance_km <= reachable_km
         and candidate.angular_separation_deg <= settings.observation_candidate_max_separation_deg
         and candidate.body_elevation_deg >= settings.min_body_elevation_deg_for_candidate
+        and candidate.score >= settings.observation_candidate_min_score
     )
     reason = None
     if not stable:
         reason = "UNSTABLE_TRACK"
-    elif candidate.score < settings.alert_min_score:
-        reason = "LOW_SCORE"
-    elif lead_time < settings.min_lead_time_seconds:
+    elif lead_time < 0:
         reason = "TOO_LATE"
     elif lead_time > settings.prediction_horizon_seconds:
         reason = "TOO_LATE"
+    elif candidate.score < settings.alert_min_score:
+        reason = "LOW_SCORE"
     elif candidate.observer_distance_km > reachable_km:
         reason = "OBSERVER_POINT_TOO_FAR"
     elif candidate.offset_body_diameters > settings.max_offset_body_diameters_for_alert:
         reason = "OFFSET_TOO_LARGE"
     elif candidate.body_elevation_deg < settings.min_body_elevation_deg:
         reason = "BODY_TOO_LOW"
+    elif lead_time > settings.alert_ready_lead_time_seconds:
+        reason = "TOO_EARLY_FOR_ALERT"
 
     if reason is None:
         candidate.status = "ALERT_READY"

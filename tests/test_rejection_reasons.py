@@ -2,9 +2,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from config import load_settings
+from airport_filter import AirportTrafficMatch
 from models import AircraftState, TransitCandidate
 from main import REJECTION_REASONS
-from main import classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km
+from main import classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km, suppress_airport_traffic_alert
 
 
 def test_rejection_reasons_include_required_values() -> None:
@@ -17,6 +18,7 @@ def test_rejection_reasons_include_required_values() -> None:
         "LOW_ALTITUDE",
         "BODY_TOO_LOW",
         "OFFSET_TOO_LARGE",
+        "TOO_EARLY_FOR_ALERT",
         "NEAR_ORIGIN_AIRPORT",
         "NEAR_DESTINATION_AIRPORT",
         "NEAR_EPWA_APPROACH",
@@ -69,6 +71,7 @@ def test_low_score_near_candidate_becomes_observation_candidate() -> None:
         travel_speed_kmh=50,
         reach_safety=0.8,
         observation_candidate_max_separation_deg=0.5,
+        observation_candidate_min_score=0.1,
         min_body_elevation_deg_for_candidate=0,
     )
 
@@ -76,6 +79,83 @@ def test_low_score_near_candidate_becomes_observation_candidate() -> None:
 
     assert candidate.status == "OBSERVATION_CANDIDATE"
     assert candidate.rejection_reason == "LOW_SCORE"
+
+
+def test_high_score_candidate_waits_until_ready_window() -> None:
+    settings = replace(
+        load_settings(),
+        alert_min_score=0.8,
+        alert_ready_lead_time_seconds=300,
+        max_observer_relocation_km=12,
+        travel_speed_kmh=50,
+        reach_safety=0.8,
+        observation_candidate_max_separation_deg=0.5,
+        observation_candidate_min_score=0.5,
+        min_body_elevation_deg_for_candidate=0,
+    )
+
+    candidate = classify_candidate(
+        _candidate(settings, score=0.95, separation=0.01, distance=1.0, body_elevation=20),
+        settings,
+        stable=True,
+    )
+
+    assert candidate.status == "OBSERVATION_CANDIDATE"
+    assert candidate.rejection_reason == "TOO_EARLY_FOR_ALERT"
+
+
+def test_high_score_candidate_becomes_ready_inside_ready_window() -> None:
+    settings = replace(
+        load_settings(),
+        alert_min_score=0.8,
+        alert_ready_lead_time_seconds=300,
+        max_observer_relocation_km=12,
+        travel_speed_kmh=50,
+        reach_safety=0.8,
+        observation_candidate_max_separation_deg=0.5,
+        observation_candidate_min_score=0.5,
+        min_body_elevation_deg_for_candidate=0,
+    )
+    candidate = _candidate(settings, score=0.95, separation=0.01, distance=1.0, body_elevation=20)
+    candidate.transit_time_utc = datetime.now(timezone.utc) + timedelta(seconds=240)
+
+    candidate = classify_candidate(candidate, settings, stable=True)
+
+    assert candidate.status == "ALERT_READY"
+    assert candidate.rejection_reason is None
+
+
+def test_low_score_below_candidate_floor_is_rejected() -> None:
+    settings = replace(
+        load_settings(),
+        alert_min_score=0.8,
+        max_observer_relocation_km=12,
+        travel_speed_kmh=50,
+        reach_safety=0.8,
+        observation_candidate_max_separation_deg=0.5,
+        observation_candidate_min_score=0.5,
+        min_body_elevation_deg_for_candidate=0,
+    )
+
+    candidate = classify_candidate(
+        _candidate(settings, score=0.4, separation=0.12, distance=3.0, body_elevation=20),
+        settings,
+        stable=True,
+    )
+
+    assert candidate.status == "REJECTED"
+    assert candidate.rejection_reason == "LOW_SCORE"
+
+
+def test_strict_airport_traffic_is_stored_without_notification() -> None:
+    settings = replace(load_settings(), alert_min_score=0.8)
+    candidate = _candidate(settings, score=0.95, separation=0.01, distance=1.0, body_elevation=20)
+    candidate = classify_candidate(candidate, settings, stable=True)
+
+    suppressed = suppress_airport_traffic_alert(candidate, AirportTrafficMatch("EPWA", "strict", "APP", 24.0, 5.0))
+
+    assert suppressed.status == "CANDIDATE_STORED"
+    assert suppressed.rejection_reason == "NEAR_EPWA_APPROACH"
 
 
 def test_notification_prefers_nearest_point_for_same_event() -> None:
