@@ -327,6 +327,7 @@ class Storage:
         result: ValidationResult | None,
         message: str,
         validated_at: datetime,
+        notified_at: datetime | None = None,
     ) -> bool:
         result_name = result.result if result else "NO_DATA"
         with self.conn.cursor() as cur:
@@ -338,8 +339,8 @@ class Storage:
                     observer_lat, observer_lon, predicted_offset_body_diameters,
                     actual_offset_body_diameters, actual_separation_deg,
                     vertical_offset_body_diameters, horizontal_offset_body_diameters,
-                    result, message, validated_at
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    result, message, validated_at, notified_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (icao, body, event_slot) DO NOTHING
                 RETURNING id
                 """,
@@ -361,6 +362,7 @@ class Storage:
                     result_name,
                     message,
                     validated_at,
+                    notified_at,
                 ),
             )
             inserted = cur.fetchone() is not None
@@ -379,7 +381,11 @@ class Storage:
                 """,
                 (max(1, limit),),
             )
-            return [(row[0], row[1]) for row in cur.fetchall()]
+            rows = cur.fetchall()
+        # Close the read transaction as well. During STANDBY there may be no
+        # following write, and an idle transaction would block UI migrations.
+        self.conn.commit()
+        return [(row[0], row[1]) for row in rows]
 
     def mark_validation_notified(self, validation_id: int, notified_at: datetime) -> None:
         with self.conn.cursor() as cur:

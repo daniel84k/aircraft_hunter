@@ -1,4 +1,5 @@
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import ui
 
@@ -34,8 +35,18 @@ def test_window_today_starts_at_local_midnight(monkeypatch) -> None:
     monkeypatch.setattr(ui, "datetime", FrozenDatetime)
 
     start, end = ui._window({"range": ["today"]})
-    local_end = end.astimezone()
-    expected_start = datetime.combine(local_end.date(), time.min, tzinfo=local_end.tzinfo).astimezone(timezone.utc)
+    warsaw = ZoneInfo("Europe/Warsaw")
+    local_end = end.astimezone(warsaw)
+    expected_start = datetime.combine(local_end.date(), time.min, tzinfo=warsaw).astimezone(timezone.utc)
 
     assert end == FrozenDatetime(2026, 6, 18, 12, 0, 0, tzinfo=timezone.utc)
     assert start == expected_start
+
+
+def test_window_supports_historical_warsaw_date(monkeypatch) -> None:
+    monkeypatch.setattr(ui, "datetime", FrozenDatetime)
+
+    start, end = ui._window({"range": ["date:2026-01-15"]})
+
+    assert start == datetime(2026, 1, 14, 23, 0, tzinfo=timezone.utc)
+    assert end == datetime(2026, 1, 15, 23, 0, tzinfo=timezone.utc)
