@@ -17,6 +17,8 @@ RUN_MODE=quiet
 
 `RUN_MODE=quiet` prints only transit alerts. `RUN_MODE=debug` also prints cycle candidate summaries. Detailed diagnostics always go to logs and PostgreSQL.
 
+After a notified transit, the application waits for post-event ADS-B samples and sends one Telegram result per event: `TRAFIONY`, `CHYBIONY`, `NIEPEWNY`, or `BRAK DANYCH`. The result is based on interpolation of the recorded flight path at the alert's observation point. `TRANSIT_VALIDATION_UNCERTAINTY_DIAMETERS` defines the uncertainty band around the body's limb.
+
 ## Run Locally
 
 Start PostgreSQL yourself, then:
@@ -88,6 +90,8 @@ aircraft_observations
 prediction_runs
 transit_candidates
 alerts
+transit_validations
+transit_validation_state
 ```
 
 Useful starting queries:
@@ -111,7 +115,7 @@ Logs include timestamps and rotate daily through `TimedRotatingFileHandler`. The
 
 ## v1 Limitations
 
-Prediction is linear: constant track, groundspeed, and optional vertical-rate altitude correction. ADS-B may be delayed or unavailable. The observer solver is approximate and bounded; it avoids brute-forcing a 5 km grid. Skyfield ephemerides depend on local availability or download of `de421.bsp`. Weather, cloud cover, Telegram notifications, GUI, full FMS trajectory modeling, and a full geodetic solver are intentionally out of scope.
+Prediction is linear: constant track, groundspeed, and optional vertical-rate altitude correction. ADS-B may be delayed or unavailable. Post-event validation is therefore an estimate, not independent optical confirmation. The observer solver is approximate and bounded; it avoids brute-forcing a 5 km grid. Skyfield ephemerides depend on local availability or download of `de421.bsp`. Weather, cloud cover, full FMS trajectory modeling, and a full geodetic solver are intentionally out of scope.
 
 Airport exclusion is configured, but v1 does not ship an airport coordinate database, so origin/destination proximity is not reliably computed. When origin/destination are missing or unresolved, the app relies on stability, altitude, groundspeed, and vertical-rate scoring instead.
 

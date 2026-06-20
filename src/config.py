@@ -39,6 +39,11 @@ class Settings:
     telegram_update_cooldown_seconds: int
     telegram_update_min_distance_improvement_km: float
     telegram_update_min_offset_improvement_ratio: float
+    transit_validation_enabled: bool
+    transit_validation_delay_seconds: int
+    transit_validation_observation_window_seconds: int
+    transit_validation_max_wait_seconds: int
+    transit_validation_uncertainty_diameters: float
     standby_body_elevation_deg: float
     min_stability_score_for_geometry: float
     min_aircraft_elevation_deg_for_geometry: float
@@ -97,6 +102,11 @@ def load_settings() -> Settings:
         telegram_update_cooldown_seconds=int(os.getenv("TELEGRAM_UPDATE_COOLDOWN_SECONDS", "180")),
         telegram_update_min_distance_improvement_km=float(os.getenv("TELEGRAM_UPDATE_MIN_DISTANCE_IMPROVEMENT_KM", "0.5")),
         telegram_update_min_offset_improvement_ratio=float(os.getenv("TELEGRAM_UPDATE_MIN_OFFSET_IMPROVEMENT_RATIO", "0.30")),
+        transit_validation_enabled=_get_bool("TRANSIT_VALIDATION_ENABLED", True),
+        transit_validation_delay_seconds=int(os.getenv("TRANSIT_VALIDATION_DELAY_SECONDS", "45")),
+        transit_validation_observation_window_seconds=int(os.getenv("TRANSIT_VALIDATION_OBSERVATION_WINDOW_SECONDS", "90")),
+        transit_validation_max_wait_seconds=int(os.getenv("TRANSIT_VALIDATION_MAX_WAIT_SECONDS", "300")),
+        transit_validation_uncertainty_diameters=float(os.getenv("TRANSIT_VALIDATION_UNCERTAINTY_DIAMETERS", "0.10")),
         standby_body_elevation_deg=float(os.getenv("STANDBY_BODY_ELEVATION_DEG", "5")),
         min_stability_score_for_geometry=float(os.getenv("MIN_STABILITY_SCORE_FOR_GEOMETRY", "0.65")),
         min_aircraft_elevation_deg_for_geometry=float(os.getenv("MIN_AIRCRAFT_ELEVATION_DEG_FOR_GEOMETRY", "7.5")),

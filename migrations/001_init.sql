@@ -105,3 +105,44 @@ ON alerts (dedupe_key);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_printed_at
 ON alerts (printed_at DESC);
+
+CREATE TABLE IF NOT EXISTS transit_validation_state (
+    singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+    enabled_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO transit_validation_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS transit_validations (
+    id BIGSERIAL PRIMARY KEY,
+    source_alert_id BIGINT NOT NULL REFERENCES alerts(id),
+    icao TEXT NOT NULL,
+    callsign TEXT,
+    body TEXT NOT NULL,
+    event_slot BIGINT NOT NULL,
+    predicted_transit_time_utc TIMESTAMPTZ NOT NULL,
+    actual_closest_time_utc TIMESTAMPTZ,
+    observer_lat DOUBLE PRECISION NOT NULL,
+    observer_lon DOUBLE PRECISION NOT NULL,
+    predicted_offset_body_diameters DOUBLE PRECISION NOT NULL,
+    actual_offset_body_diameters DOUBLE PRECISION,
+    actual_separation_deg DOUBLE PRECISION,
+    vertical_offset_body_diameters DOUBLE PRECISION,
+    horizontal_offset_body_diameters DOUBLE PRECISION,
+    result TEXT NOT NULL CHECK (result IN ('HIT', 'MISS', 'UNCERTAIN', 'NO_DATA')),
+    message TEXT NOT NULL,
+    validated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notified_at TIMESTAMPTZ,
+    UNIQUE (icao, body, event_slot)
+);
+
+CREATE INDEX IF NOT EXISTS idx_transit_validations_notified_at
+ON transit_validations (notified_at, validated_at);
+
+ALTER TABLE transit_validations
+ADD COLUMN IF NOT EXISTS vertical_offset_body_diameters DOUBLE PRECISION;
+
+ALTER TABLE transit_validations
+ADD COLUMN IF NOT EXISTS horizontal_offset_body_diameters DOUBLE PRECISION;

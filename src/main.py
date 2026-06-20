@@ -22,6 +22,7 @@ from storage import Storage
 from telegram import TelegramNotifier
 from transit_detector import closest_alignment, detect_transit_candidates
 from ui import start_ui_server
+from validation import format_validation_message, validate_actual_transit
 
 
 LOG = logging.getLogger(__name__)
@@ -232,6 +233,70 @@ def coarse_geometry_check(settings: Settings, path, ephemeris_cache: dict):
     return separation <= allowed_separation_deg, closest, allowed_separation_deg
 
 
+def send_validation_notifications(storage: Storage, notifier: TelegramNotifier | None) -> None:
+    for validation_id, message in storage.unsent_validations():
+        sent = True
+        if notifier and notifier.enabled:
+            sent = notifier.send_message(message)
+        else:
+            print(message, flush=True)
+        if not sent:
+            continue
+        notified_at = datetime.now(timezone.utc)
+        storage.mark_validation_notified(validation_id, notified_at)
+        LOG.info("TRANSIT_VALIDATION_SENT | validation_id=%s", validation_id)
+
+
+def process_due_transit_validations(
+    settings: Settings,
+    storage: Storage,
+    notifier: TelegramNotifier | None,
+    now: datetime,
+) -> None:
+    if not settings.transit_validation_enabled:
+        return
+    events = storage.pending_validation_events(
+        now=now,
+        delay_seconds=settings.transit_validation_delay_seconds,
+        event_window_seconds=settings.locked_alert_window_seconds,
+    )
+    for event in events:
+        observations = storage.observations_around(
+            icao=event["icao"],
+            timestamp=event["transit_time_utc"],
+            window_seconds=settings.transit_validation_observation_window_seconds,
+        )
+        result = validate_actual_transit(
+            observations,
+            body_name=event["body"],
+            observer_lat=event["observer_lat"],
+            observer_lon=event["observer_lon"],
+            hit_uncertainty_diameters=settings.transit_validation_uncertainty_diameters,
+        )
+        event["observation_count"] = len(observations)
+        event_age_seconds = (now - event["transit_time_utc"]).total_seconds()
+        if result is None and event_age_seconds < settings.transit_validation_max_wait_seconds:
+            continue
+        message = format_validation_message(event, result)
+        if not storage.insert_validation(event, result, message, now):
+            continue
+        LOG.info(
+            "TRANSIT_VALIDATED | aircraft=%s callsign=%s body=%s result=%s predicted_time_utc=%s "
+            "actual_time_utc=%s actual_offset_diameters=%s vertical_offset_diameters=%s "
+            "horizontal_offset_diameters=%s",
+            event["icao"],
+            event.get("callsign") or "-",
+            event["body"],
+            result.result if result else "NO_DATA",
+            event["transit_time_utc"].isoformat(),
+            result.actual_closest_time_utc.isoformat() if result else "-",
+            f"{result.actual_offset_body_diameters:.3f}" if result else "-",
+            f"{result.vertical_offset_body_diameters:.3f}" if result else "-",
+            f"{result.horizontal_offset_body_diameters:.3f}" if result else "-",
+        )
+    send_validation_notifications(storage, notifier)
+
+
 def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, histories, notifier: TelegramNotifier | None = None) -> None:
     cycle_started = datetime.now(timezone.utc)
     cycle_id = int(cycle_started.timestamp())
@@ -267,6 +332,7 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
     )
     storage.insert_observations(aircraft)
     cycle_log(cycle_id, 1, "DB_STORE_OBSERVATIONS", "stored_aircraft_observations=%s", len(aircraft))
+    process_due_transit_validations(settings, storage, notifier, datetime.now(timezone.utc))
     for ac in aircraft:
         histories[ac.icao].append(ac)
         prune_history(histories[ac.icao], ac.timestamp)
@@ -661,6 +727,8 @@ def main() -> None:
 
     while True:
         try:
+            if settings.transit_validation_enabled:
+                send_validation_notifications(storage, notifier)
             run_cycle(settings, client, storage, histories, notifier)
         except Exception as exc:
             LOG.exception("Cycle failed error=%s", exc)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 
 from models import AircraftState, TransitCandidate
+from validation import ActualObservation, ValidationResult
 
 
 LOG = logging.getLogger(__name__)
@@ -228,5 +229,162 @@ class Storage:
                 WHERE id=%s
                 """,
                 (printed_at, candidate_id),
+            )
+        self.conn.commit()
+
+    def pending_validation_events(
+        self,
+        *,
+        now: datetime,
+        delay_seconds: int,
+        event_window_seconds: int,
+        limit: int = 20,
+    ) -> list[dict]:
+        window = max(60, int(event_window_seconds))
+        ready_before = now - timedelta(seconds=max(0, delay_seconds))
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH ranked AS (
+                    SELECT
+                        a.id AS alert_id,
+                        lower(tc.icao) AS normalized_icao,
+                        tc.icao,
+                        tc.callsign,
+                        tc.body,
+                        floor(extract(epoch from tc.transit_time_utc) / %s)::bigint AS event_slot,
+                        tc.transit_time_utc,
+                        tc.observer_lat,
+                        tc.observer_lon,
+                        tc.offset_body_diameters,
+                        row_number() OVER (
+                            PARTITION BY lower(tc.icao), lower(tc.body),
+                                         floor(extract(epoch from tc.transit_time_utc) / %s)
+                            ORDER BY a.printed_at DESC, tc.offset_body_diameters ASC
+                        ) AS rank
+                    FROM alerts a
+                    JOIN transit_candidates tc ON tc.id = a.transit_candidate_id
+                    JOIN transit_validation_state state ON state.singleton = true
+                    WHERE a.printed_at >= state.enabled_at
+                      AND tc.transit_time_utc <= %s
+                )
+                SELECT alert_id, icao, callsign, body, event_slot, transit_time_utc,
+                       observer_lat, observer_lon, offset_body_diameters
+                FROM ranked event
+                WHERE rank = 1
+                  AND NOT EXISTS (
+                      SELECT 1 FROM transit_validations validation
+                      WHERE validation.icao = event.normalized_icao
+                        AND validation.body = lower(event.body)
+                        AND validation.event_slot = event.event_slot
+                  )
+                ORDER BY transit_time_utc
+                LIMIT %s
+                """,
+                (window, window, ready_before, max(1, limit)),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "alert_id": row[0],
+                "icao": row[1],
+                "callsign": row[2],
+                "body": row[3],
+                "event_slot": row[4],
+                "transit_time_utc": row[5],
+                "observer_lat": row[6],
+                "observer_lon": row[7],
+                "predicted_offset_body_diameters": row[8],
+            }
+            for row in rows
+        ]
+
+    def observations_around(
+        self,
+        *,
+        icao: str,
+        timestamp: datetime,
+        window_seconds: int,
+    ) -> list[ActualObservation]:
+        delta = timedelta(seconds=max(1, window_seconds))
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT observed_at, lat, lon, altitude_ft
+                FROM aircraft_observations
+                WHERE lower(icao) = lower(%s)
+                  AND observed_at BETWEEN %s AND %s
+                ORDER BY observed_at
+                """,
+                (icao, timestamp - delta, timestamp + delta),
+            )
+            rows = cur.fetchall()
+        return [ActualObservation(row[0], row[1], row[2], row[3]) for row in rows]
+
+    def insert_validation(
+        self,
+        event: dict,
+        result: ValidationResult | None,
+        message: str,
+        validated_at: datetime,
+    ) -> bool:
+        result_name = result.result if result else "NO_DATA"
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO transit_validations (
+                    source_alert_id, icao, callsign, body, event_slot,
+                    predicted_transit_time_utc, actual_closest_time_utc,
+                    observer_lat, observer_lon, predicted_offset_body_diameters,
+                    actual_offset_body_diameters, actual_separation_deg,
+                    vertical_offset_body_diameters, horizontal_offset_body_diameters,
+                    result, message, validated_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (icao, body, event_slot) DO NOTHING
+                RETURNING id
+                """,
+                (
+                    event["alert_id"],
+                    event["icao"].lower(),
+                    event.get("callsign"),
+                    event["body"].lower(),
+                    event["event_slot"],
+                    event["transit_time_utc"],
+                    result.actual_closest_time_utc if result else None,
+                    event["observer_lat"],
+                    event["observer_lon"],
+                    event["predicted_offset_body_diameters"],
+                    result.actual_offset_body_diameters if result else None,
+                    result.actual_separation_deg if result else None,
+                    result.vertical_offset_body_diameters if result else None,
+                    result.horizontal_offset_body_diameters if result else None,
+                    result_name,
+                    message,
+                    validated_at,
+                ),
+            )
+            inserted = cur.fetchone() is not None
+        self.conn.commit()
+        return inserted
+
+    def unsent_validations(self, limit: int = 20) -> list[tuple[int, str]]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, message
+                FROM transit_validations
+                WHERE notified_at IS NULL
+                ORDER BY validated_at
+                LIMIT %s
+                """,
+                (max(1, limit),),
+            )
+            return [(row[0], row[1]) for row in cur.fetchall()]
+
+    def mark_validation_notified(self, validation_id: int, notified_at: datetime) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE transit_validations SET notified_at=%s WHERE id=%s AND notified_at IS NULL",
+                (notified_at, validation_id),
             )
         self.conn.commit()

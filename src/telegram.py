@@ -31,9 +31,9 @@ class TelegramNotifier:
     def enabled(self) -> bool:
         return bool(self.token and self.chat_id)
 
-    def send_message(self, text: str) -> None:
+    def send_message(self, text: str) -> bool:
         if not self.enabled:
-            return
+            return False
         try:
             response = requests.post(
                 f"https://api.telegram.org/bot{self.token}/sendMessage",
@@ -46,12 +46,15 @@ class TelegramNotifier:
             )
             if response.status_code >= 400:
                 LOG.warning("Telegram sendMessage failed status=%s body=%s", response.status_code, response.text[:200])
+                return False
+            return True
         except Exception as exc:
             LOG.warning("Telegram sendMessage failed error=%s", exc)
+            return False
 
-    def send_location(self, lat: float, lon: float) -> None:
+    def send_location(self, lat: float, lon: float) -> bool:
         if not self.enabled:
-            return
+            return False
         try:
             response = requests.post(
                 f"https://api.telegram.org/bot{self.token}/sendLocation",
@@ -60,8 +63,11 @@ class TelegramNotifier:
             )
             if response.status_code >= 400:
                 LOG.warning("Telegram sendLocation failed status=%s body=%s", response.status_code, response.text[:200])
+                return False
+            return True
         except Exception as exc:
             LOG.warning("Telegram sendLocation failed error=%s", exc)
+            return False
 
     def send_candidate(
         self,
