@@ -5,9 +5,10 @@ def test_lead_time_score() -> None:
     assert lead_time_score(-1) == 0.0
     assert lead_time_score(120) == 1.0
     assert lead_time_score(300) == 1.0
-    assert lead_time_score(600) == 1.0
-    assert lead_time_score(1800) == 0.8
-    assert lead_time_score(3000) == 0.5
+    assert lead_time_score(600) == 0.8
+    assert lead_time_score(900) == 0.45
+    assert lead_time_score(1200) == 0.20
+    assert lead_time_score(1800) == 0.05
 
 
 def test_observer_distance_score() -> None:

@@ -5,7 +5,7 @@ from config import load_settings
 from airport_filter import AirportTrafficMatch
 from models import AircraftState, TransitCandidate
 from main import REJECTION_REASONS
-from main import classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km, suppress_airport_traffic_alert
+from main import classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km, suppress_airport_traffic_alert, update_candidate_convergence
 
 
 def test_rejection_reasons_include_required_values() -> None:
@@ -72,6 +72,7 @@ def test_low_score_near_candidate_becomes_observation_candidate() -> None:
         reach_safety=0.8,
         observation_candidate_max_separation_deg=0.5,
         observation_candidate_min_score=0.1,
+        observation_candidate_max_lead_seconds=1200,
         min_body_elevation_deg_for_candidate=0,
     )
 
@@ -91,6 +92,7 @@ def test_high_score_candidate_waits_until_ready_window() -> None:
         reach_safety=0.8,
         observation_candidate_max_separation_deg=0.5,
         observation_candidate_min_score=0.5,
+        observation_candidate_max_lead_seconds=1200,
         min_body_elevation_deg_for_candidate=0,
     )
 
@@ -147,8 +149,66 @@ def test_low_score_below_candidate_floor_is_rejected() -> None:
     assert candidate.rejection_reason == "LOW_SCORE"
 
 
+def test_observation_candidate_beyond_notification_horizon_is_rejected() -> None:
+    settings = replace(
+        load_settings(),
+        alert_min_score=0.8,
+        observation_candidate_min_score=0.5,
+        observation_candidate_max_lead_seconds=600,
+        observation_candidate_max_separation_deg=0.5,
+        min_body_elevation_deg_for_candidate=0,
+    )
+    candidate = _candidate(settings, score=0.7, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.transit_time_utc = datetime.now(timezone.utc) + timedelta(seconds=900)
+
+    candidate = classify_candidate(candidate, settings, stable=True)
+
+    assert candidate.status != "OBSERVATION_CANDIDATE"
+
+
+def test_notification_requires_three_converged_cycles() -> None:
+    settings = replace(
+        load_settings(),
+        notification_consecutive_cycles=3,
+        notification_max_time_shift_seconds=5,
+        notification_max_observer_shift_km=0.5,
+        notification_max_offset_worsening_diameters=0.05,
+    )
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.transit_time_utc = now + timedelta(minutes=5)
+    tracker = {}
+
+    ready1, count1, _ = update_candidate_convergence(candidate, tracker, settings, now)
+    candidate.transit_time_utc += timedelta(seconds=2)
+    candidate.observer_lat += 0.0002
+    ready2, count2, _ = update_candidate_convergence(candidate, tracker, settings, now + timedelta(seconds=10))
+    candidate.transit_time_utc -= timedelta(seconds=1)
+    ready3, count3, _ = update_candidate_convergence(candidate, tracker, settings, now + timedelta(seconds=20))
+
+    assert (ready1, count1) == (False, 1)
+    assert (ready2, count2) == (False, 2)
+    assert (ready3, count3) == (True, 3)
+
+
+def test_notification_convergence_resets_when_time_moves() -> None:
+    settings = replace(load_settings(), notification_consecutive_cycles=2, notification_max_time_shift_seconds=5)
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.transit_time_utc = now + timedelta(minutes=5)
+    tracker = {}
+    update_candidate_convergence(candidate, tracker, settings, now)
+    candidate.transit_time_utc += timedelta(seconds=12)
+
+    ready, count, reason = update_candidate_convergence(candidate, tracker, settings, now + timedelta(seconds=10))
+
+    assert ready is False
+    assert count == 1
+    assert reason == "TRANSIT_TIME_MOVED"
+
+
 def test_strict_airport_traffic_is_stored_without_notification() -> None:
-    settings = replace(load_settings(), alert_min_score=0.8)
+    settings = replace(load_settings(), alert_min_score=0.8, observation_candidate_max_lead_seconds=1200)
     candidate = _candidate(settings, score=0.95, separation=0.01, distance=1.0, body_elevation=20)
     candidate = classify_candidate(candidate, settings, stable=True)
 

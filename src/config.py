@@ -15,6 +15,9 @@ class Settings:
     poll_interval_seconds: int
     prediction_horizon_seconds: int
     prediction_step_seconds: int
+    prediction_use_history_fit: bool
+    prediction_fit_window_seconds: int
+    prediction_fit_min_points: int
     max_observer_relocation_km: float
     travel_speed_kmh: float
     reach_safety: float
@@ -34,6 +37,12 @@ class Settings:
     min_body_elevation_deg_for_candidate: float
     observation_candidate_max_separation_deg: float
     observation_candidate_min_score: float
+    observation_candidate_max_lead_seconds: int
+    notification_require_convergence: bool
+    notification_consecutive_cycles: int
+    notification_max_time_shift_seconds: float
+    notification_max_observer_shift_km: float
+    notification_max_offset_worsening_diameters: float
     telegram_candidate_cooldown_seconds: int
     telegram_max_candidates_per_cycle: int
     telegram_update_cooldown_seconds: int
@@ -78,6 +87,9 @@ def load_settings() -> Settings:
         poll_interval_seconds=int(os.getenv("POLL_INTERVAL_SECONDS", "10")),
         prediction_horizon_seconds=int(os.getenv("PREDICTION_HORIZON_SECONDS", "1800")),
         prediction_step_seconds=int(os.getenv("PREDICTION_STEP_SECONDS", "1")),
+        prediction_use_history_fit=_get_bool("PREDICTION_USE_HISTORY_FIT", True),
+        prediction_fit_window_seconds=int(os.getenv("PREDICTION_FIT_WINDOW_SECONDS", "90")),
+        prediction_fit_min_points=int(os.getenv("PREDICTION_FIT_MIN_POINTS", "4")),
         max_observer_relocation_km=float(os.getenv("MAX_OBSERVER_RELOCATION_KM", "12")),
         travel_speed_kmh=float(os.getenv("TRAVEL_SPEED_KMH", "50")),
         reach_safety=float(os.getenv("REACH_SAFETY", "0.8")),
@@ -96,7 +108,13 @@ def load_settings() -> Settings:
         min_body_elevation_deg=float(os.getenv("MIN_BODY_ELEVATION_DEG", "8")),
         min_body_elevation_deg_for_candidate=float(os.getenv("MIN_BODY_ELEVATION_DEG_FOR_CANDIDATE", "0")),
         observation_candidate_max_separation_deg=float(os.getenv("OBSERVATION_CANDIDATE_MAX_SEPARATION_DEG", "0.20")),
-        observation_candidate_min_score=float(os.getenv("OBSERVATION_CANDIDATE_MIN_SCORE", "0.50")),
+        observation_candidate_min_score=float(os.getenv("OBSERVATION_CANDIDATE_MIN_SCORE", "0.65")),
+        observation_candidate_max_lead_seconds=int(os.getenv("OBSERVATION_CANDIDATE_MAX_LEAD_SECONDS", "600")),
+        notification_require_convergence=_get_bool("NOTIFICATION_REQUIRE_CONVERGENCE", True),
+        notification_consecutive_cycles=int(os.getenv("NOTIFICATION_CONSECUTIVE_CYCLES", "3")),
+        notification_max_time_shift_seconds=float(os.getenv("NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "5")),
+        notification_max_observer_shift_km=float(os.getenv("NOTIFICATION_MAX_OBSERVER_SHIFT_KM", "0.5")),
+        notification_max_offset_worsening_diameters=float(os.getenv("NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "0.05")),
         telegram_candidate_cooldown_seconds=int(os.getenv("TELEGRAM_CANDIDATE_COOLDOWN_SECONDS", "900")),
         telegram_max_candidates_per_cycle=int(os.getenv("TELEGRAM_MAX_CANDIDATES_PER_CYCLE", "2")),
         telegram_update_cooldown_seconds=int(os.getenv("TELEGRAM_UPDATE_COOLDOWN_SECONDS", "180")),

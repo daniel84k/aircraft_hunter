@@ -19,11 +19,15 @@ def lead_time_score(seconds: int) -> float:
     minutes = seconds / 60.0
     if seconds < 0:
         return 0.0
-    if minutes <= 25:
+    if minutes <= 5:
         return 1.0
-    if minutes <= 40:
+    if minutes <= 10:
         return 0.8
-    return 0.5
+    if minutes <= 15:
+        return 0.45
+    if minutes <= 20:
+        return 0.20
+    return 0.05
 
 
 def observer_distance_score(distance_km: float) -> float:

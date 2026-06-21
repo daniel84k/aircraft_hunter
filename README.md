@@ -19,6 +19,10 @@ RUN_MODE=quiet
 
 After a notified transit, the application waits for post-event ADS-B samples and sends one Telegram result per event: `TRAFIONY`, `CHYBIONY`, `NIEPEWNY`, or `BRAK DANYCH`. The result is based on interpolation of the recorded flight path at the alert's observation point. `TRANSIT_VALIDATION_UNCERTAINTY_DIAMETERS` defines the uncertainty band around the body's limb.
 
+Notifications use two reliability gates. Observation candidates are limited by `OBSERVATION_CANDIDATE_MAX_LEAD_SECONDS` and must meet `OBSERVATION_CANDIDATE_MIN_SCORE`. When `NOTIFICATION_REQUIRE_CONVERGENCE=true`, the same event must remain stable for several consecutive cycles: predicted time, observer point, and offset must stay within the configured tolerances.
+
+`PREDICTION_USE_HISTORY_FIT=true` estimates speed, track, and vertical rate from recent ADS-B positions instead of trusting one instantaneous report. It falls back to the original single-point model when the history is too short or implausible.
+
 ## Run Locally
 
 Start PostgreSQL yourself, then:
@@ -61,7 +65,7 @@ It shows observation/run/candidate/alert counts, recent prediction runs, rejecti
 
 ## Project Structure
 
-`src/adsb_client.py` fetches and validates ADS-B records. `src/stability.py` scores flight stability using altitude, vertical rate, track change, and speed change. `src/prediction.py` performs linear aircraft prediction. `src/ephemeris.py` calculates Moon and Sun positions with Skyfield. `src/transit_detector.py` finds angular alignments. `src/observer_solver.py` searches for a bounded observation point. `src/scoring.py` ranks candidates. `src/storage.py` writes observations, prediction runs, candidates, and alerts to PostgreSQL.
+`src/adsb_client.py` fetches and validates ADS-B records. `src/stability.py` scores flight stability using altitude, vertical rate, track change, and speed change. `src/prediction.py` fits recent ADS-B motion and extrapolates the aircraft path. `src/ephemeris.py` calculates Moon and Sun positions with Skyfield. `src/transit_detector.py` finds angular alignments. `src/observer_solver.py` searches for a bounded observation point. `src/scoring.py` ranks candidates. `src/storage.py` writes observations, prediction runs, candidates, and alerts to PostgreSQL.
 
 ## Scoring
 
@@ -80,6 +84,17 @@ In debug mode, stable flights can still be skipped before ephemeris comparison w
 `SEARCH_RADIUS_NM` is intentionally wider than the geometry range: it controls how early aircraft are fetched from ADS-B. `MAX_AIRCRAFT_RANGE_KM_FOR_GEOMETRY` controls when the aircraft is close enough to be photographically useful, and `PREDICTION_HORIZON_SECONDS` must be long enough to cover the time from first fetch to possible transit.
 
 The practical notification path is intentionally looser than the final alert path. `OBSERVATION_CANDIDATE_MAX_SEPARATION_DEG` controls the maximum angular error for an observation candidate, while `TRAVEL_SPEED_KMH`, `REACH_SAFETY`, and `MAX_OBSERVER_RELOCATION_KM` determine how far the observer can reasonably relocate before the predicted transit.
+
+To quickly restore the legacy notification volume without reverting code, set:
+
+```text
+PREDICTION_USE_HISTORY_FIT=false
+NOTIFICATION_REQUIRE_CONVERGENCE=false
+OBSERVATION_CANDIDATE_MAX_LEAD_SECONDS=1800
+OBSERVATION_CANDIDATE_MIN_SCORE=0.50
+```
+
+The lead-time scoring curve is a code change and is restored by reverting the dedicated reliability commit.
 
 ## Database Analysis
 
@@ -115,7 +130,7 @@ Logs include timestamps and rotate daily through `TimedRotatingFileHandler`. The
 
 ## v1 Limitations
 
-Prediction is linear: constant track, groundspeed, and optional vertical-rate altitude correction. ADS-B may be delayed or unavailable. Post-event validation is therefore an estimate, not independent optical confirmation. The observer solver is approximate and bounded; it avoids brute-forcing a 5 km grid. Skyfield ephemerides depend on local availability or download of `de421.bsp`. Weather, cloud cover, full FMS trajectory modeling, and a full geodetic solver are intentionally out of scope.
+Prediction still extrapolates a constant fitted motion vector after estimating it from recent positions. Turns after the fit window and delayed ADS-B remain sources of error. Post-event validation is therefore an estimate, not independent optical confirmation. The observer solver is approximate and bounded; it avoids brute-forcing a 5 km grid. Skyfield ephemerides depend on local availability or download of `de421.bsp`. Weather, cloud cover, full FMS trajectory modeling, and a full geodetic solver are intentionally out of scope.
 
 Airport exclusion is configured, but v1 does not ship an airport coordinate database, so origin/destination proximity is not reliably computed. When origin/destination are missing or unresolved, the app relies on stability, altitude, groundspeed, and vertical-rate scoring instead.
 

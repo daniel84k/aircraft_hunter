@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import math
@@ -12,6 +13,7 @@ from alerts import dedupe_key, format_alert
 from config import Settings, load_settings
 from db import connect, run_migrations
 from ephemeris import get_body_states
+from geo import haversine_distance_km
 from logging_config import configure_logging
 from models import AircraftState, TransitCandidate
 from observer_solver import google_maps_url, google_nav_url, solve_observer_point
@@ -48,6 +50,69 @@ REJECTION_REASONS = {
     "DUPLICATE_ALERT",
     "INSUFFICIENT_DATA",
 }
+
+
+@dataclass
+class CandidateConvergence:
+    consecutive_cycles: int
+    last_seen_at: datetime
+    transit_time_utc: datetime
+    observer_lat: float
+    observer_lon: float
+    offset_body_diameters: float
+
+
+def update_candidate_convergence(
+    candidate: TransitCandidate,
+    tracker: dict[tuple[str, str, int], CandidateConvergence],
+    settings: Settings,
+    now: datetime,
+) -> tuple[bool, int, str]:
+    key = notification_event_key(candidate, settings.locked_alert_window_seconds)
+    previous = tracker.get(key)
+    reason = "FIRST_OBSERVATION"
+    consecutive = 1
+    if previous is not None:
+        gap_seconds = (now - previous.last_seen_at).total_seconds()
+        time_shift = abs((candidate.transit_time_utc - previous.transit_time_utc).total_seconds())
+        observer_shift = haversine_distance_km(
+            previous.observer_lat,
+            previous.observer_lon,
+            candidate.observer_lat,
+            candidate.observer_lon,
+        )
+        offset_worsening = candidate.offset_body_diameters - previous.offset_body_diameters
+        if gap_seconds > max(30, settings.poll_interval_seconds * 3):
+            reason = "CYCLE_GAP"
+        elif time_shift > settings.notification_max_time_shift_seconds:
+            reason = "TRANSIT_TIME_MOVED"
+        elif observer_shift > settings.notification_max_observer_shift_km:
+            reason = "OBSERVER_POINT_MOVED"
+        elif offset_worsening > settings.notification_max_offset_worsening_diameters:
+            reason = "OFFSET_WORSENED"
+        else:
+            consecutive = previous.consecutive_cycles + 1
+            reason = "CONVERGED"
+    tracker[key] = CandidateConvergence(
+        consecutive_cycles=consecutive,
+        last_seen_at=now,
+        transit_time_utc=candidate.transit_time_utc,
+        observer_lat=candidate.observer_lat,
+        observer_lon=candidate.observer_lon,
+        offset_body_diameters=candidate.offset_body_diameters,
+    )
+    required = max(1, settings.notification_consecutive_cycles)
+    return consecutive >= required, consecutive, reason
+
+
+def prune_candidate_convergence(
+    tracker: dict[tuple[str, str, int], CandidateConvergence],
+    now: datetime,
+    max_age_seconds: int,
+) -> None:
+    stale = [key for key, value in tracker.items() if (now - value.last_seen_at).total_seconds() > max_age_seconds]
+    for key in stale:
+        tracker.pop(key, None)
 
 
 def reachable_relocation_km(settings: Settings, lead_time_seconds: int) -> float:
@@ -96,6 +161,7 @@ def classify_candidate(candidate: TransitCandidate, settings: Settings, stable: 
         stable
         and lead_time >= 0
         and lead_time <= settings.prediction_horizon_seconds
+        and lead_time <= settings.observation_candidate_max_lead_seconds
         and candidate.observer_distance_km <= reachable_km
         and candidate.angular_separation_deg <= settings.observation_candidate_max_separation_deg
         and candidate.body_elevation_deg >= settings.min_body_elevation_deg_for_candidate
@@ -297,9 +363,22 @@ def process_due_transit_validations(
     send_validation_notifications(storage, notifier)
 
 
-def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, histories, notifier: TelegramNotifier | None = None) -> None:
+def run_cycle(
+    settings: Settings,
+    client: ADSBClient,
+    storage: Storage,
+    histories,
+    notifier: TelegramNotifier | None = None,
+    convergence_tracker: dict[tuple[str, str, int], CandidateConvergence] | None = None,
+) -> None:
     cycle_started = datetime.now(timezone.utc)
     cycle_id = int(cycle_started.timestamp())
+    if convergence_tracker is not None:
+        prune_candidate_convergence(
+            convergence_tracker,
+            cycle_started,
+            max_age_seconds=max(600, settings.prediction_horizon_seconds * 2),
+        )
     airport_profiles = parse_airport_filter_profiles(settings.airport_traffic_filters)
     current_bodies = get_body_states(settings.user_lat, settings.user_lon, cycle_started)
     visible_bodies = [
@@ -449,6 +528,10 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                 settings.user_lon,
                 settings.prediction_horizon_seconds,
                 settings.prediction_step_seconds,
+                history=history,
+                use_history_fit=settings.prediction_use_history_fit,
+                fit_window_seconds=settings.prediction_fit_window_seconds,
+                fit_min_points=settings.prediction_fit_min_points,
             )
             if not path:
                 cycle_log(
@@ -609,10 +692,28 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
         all_candidates.sort(key=notification_sort_key)
         notified_candidates_this_cycle = 0
         notified_events_this_cycle: set[tuple[str, str, int]] = set()
+        evaluated_events_this_cycle: set[tuple[str, str, int]] = set()
         for candidate in all_candidates[:50]:
             alert_type = "CONSOLE"
             is_better_alert = False
-            if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+            eligible_for_notification = candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}
+            convergence_ready = True
+            convergence_count = 0
+            convergence_reason = "DISABLED"
+            if eligible_for_notification and settings.notification_require_convergence and convergence_tracker is not None:
+                event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
+                if event_key in evaluated_events_this_cycle:
+                    convergence_ready = False
+                    convergence_reason = "SAME_CYCLE_DUPLICATE"
+                else:
+                    convergence_ready, convergence_count, convergence_reason = update_candidate_convergence(
+                        candidate,
+                        convergence_tracker,
+                        settings,
+                        cycle_started,
+                    )
+                    evaluated_events_this_cycle.add(event_key)
+            if eligible_for_notification and convergence_ready:
                 previous_event = storage.alert_event_summary(
                     icao=candidate.aircraft.icao,
                     body=candidate.body,
@@ -647,6 +748,21 @@ def run_cycle(settings: Settings, client: ADSBClient, storage: Storage, historie
                     candidate.rejection_reason or "-",
                     candidate.score,
                 )
+                if eligible_for_notification and not convergence_ready:
+                    cycle_log(
+                        cycle_id,
+                        5,
+                        "NOTIFICATION_DEFERRED",
+                        "aircraft=%s callsign=%s body=%s consecutive_cycles=%s required_cycles=%s reason=%s",
+                        candidate.aircraft.icao,
+                        candidate.aircraft.callsign or "-",
+                        candidate.body,
+                        convergence_count,
+                        settings.notification_consecutive_cycles,
+                        convergence_reason,
+                    )
+            if eligible_for_notification and not convergence_ready:
+                continue
             if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
                 event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
                 if event_key in notified_events_this_cycle:
@@ -718,6 +834,7 @@ def main() -> None:
     client = ADSBClient(settings.adsbfi_base)
     notifier = TelegramNotifier()
     histories: dict[str, deque[AircraftState]] = defaultdict(lambda: deque(maxlen=240))
+    convergence_tracker: dict[tuple[str, str, int], CandidateConvergence] = {}
     if settings.ui_enabled:
         start_ui_server(settings)
     LOG.info("Aircraft Transit Hunter started mode=%s", settings.run_mode)
@@ -729,7 +846,7 @@ def main() -> None:
         try:
             if settings.transit_validation_enabled:
                 send_validation_notifications(storage, notifier)
-            run_cycle(settings, client, storage, histories, notifier)
+            run_cycle(settings, client, storage, histories, notifier, convergence_tracker)
         except Exception as exc:
             LOG.exception("Cycle failed error=%s", exc)
         time.sleep(settings.poll_interval_seconds)
