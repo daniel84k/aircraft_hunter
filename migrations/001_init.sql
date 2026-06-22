@@ -117,7 +117,7 @@ ON CONFLICT (singleton) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS transit_validations (
     id BIGSERIAL PRIMARY KEY,
-    source_alert_id BIGINT NOT NULL REFERENCES alerts(id),
+    source_alert_id BIGINT REFERENCES alerts(id),
     icao TEXT NOT NULL,
     callsign TEXT,
     body TEXT NOT NULL,
@@ -146,3 +146,6 @@ ADD COLUMN IF NOT EXISTS vertical_offset_body_diameters DOUBLE PRECISION;
 
 ALTER TABLE transit_validations
 ADD COLUMN IF NOT EXISTS horizontal_offset_body_diameters DOUBLE PRECISION;
+
+ALTER TABLE transit_validations
+ALTER COLUMN source_alert_id DROP NOT NULL;

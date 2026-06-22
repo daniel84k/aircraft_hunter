@@ -103,7 +103,7 @@ def load_settings() -> Settings:
         max_vertical_rate_stable_fpm=float(os.getenv("MAX_VERTICAL_RATE_STABLE_FPM", "500")),
         max_track_change_60s_deg=float(os.getenv("MAX_TRACK_CHANGE_60S_DEG", "8")),
         max_gs_change_60s_kt=float(os.getenv("MAX_GS_CHANGE_60S_KT", "40")),
-        alert_min_score=float(os.getenv("ALERT_MIN_SCORE", "0.80")),
+        alert_min_score=float(os.getenv("ALERT_MIN_SCORE", "0.70")),
         max_offset_body_diameters_for_alert=float(os.getenv("MAX_OFFSET_BODY_DIAMETERS_FOR_ALERT", "0.25")),
         min_body_elevation_deg=float(os.getenv("MIN_BODY_ELEVATION_DEG", "8")),
         min_body_elevation_deg_for_candidate=float(os.getenv("MIN_BODY_ELEVATION_DEG_FOR_CANDIDATE", "0")),
