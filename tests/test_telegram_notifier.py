@@ -70,3 +70,27 @@ def test_notifier_suppresses_same_aircraft_body_within_event_window() -> None:
 
     assert notifier.send_candidate(first, "first", 900, 180, 0.5, 0.3, 600)
     assert not notifier.send_candidate(second, "second", 900, 180, 0.5, 0.3, 600)
+
+
+def test_notifier_does_not_record_candidate_when_text_delivery_fails(monkeypatch) -> None:
+    notifier = TelegramNotifier(token="token", chat_id="chat")
+    candidate = _candidate()
+    monkeypatch.setattr(notifier, "send_message", lambda _text: False)
+    monkeypatch.setattr(
+        notifier,
+        "send_location",
+        lambda _lat, _lon: (_ for _ in ()).throw(AssertionError("location should not be sent")),
+    )
+
+    assert not notifier.send_candidate(candidate, "failed", 900, 180, 0.5, 0.3)
+    assert notifier._sent_candidates == {}
+
+
+def test_notifier_records_candidate_when_text_succeeds_but_location_fails(monkeypatch) -> None:
+    notifier = TelegramNotifier(token="token", chat_id="chat")
+    candidate = _candidate()
+    monkeypatch.setattr(notifier, "send_message", lambda _text: True)
+    monkeypatch.setattr(notifier, "send_location", lambda _lat, _lon: False)
+
+    assert notifier.send_candidate(candidate, "delivered", 900, 180, 0.5, 0.3)
+    assert len(notifier._sent_candidates) == 1

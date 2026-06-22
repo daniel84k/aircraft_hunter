@@ -23,8 +23,8 @@ class SentCandidate:
 
 class TelegramNotifier:
     def __init__(self, token: str | None = None, chat_id: str | None = None) -> None:
-        self.token = token or os.getenv("TELEGRAM_TOKEN", "")
-        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
+        self.token = os.getenv("TELEGRAM_TOKEN", "") if token is None else token
+        self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "") if chat_id is None else chat_id
         self._sent_candidates: dict[tuple[str, str, str], SentCandidate] = {}
 
     @property
@@ -95,8 +95,15 @@ class TelegramNotifier:
             notification_phase,
         ):
             return False
-        self.send_message(text)
-        self.send_location(candidate.observer_lat, candidate.observer_lon)
+        if self.enabled:
+            if not self.send_message(text):
+                return False
+            if not self.send_location(candidate.observer_lat, candidate.observer_lon):
+                LOG.warning(
+                    "Telegram candidate text delivered but location failed aircraft=%s body=%s",
+                    candidate.aircraft.icao,
+                    candidate.body,
+                )
         self._sent_candidates[key] = SentCandidate(
             sent_at=now,
             status=notification_phase or candidate.status,
