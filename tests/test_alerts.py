@@ -52,6 +52,18 @@ def test_format_alert_can_label_better_update() -> None:
     assert "BETTER TRANSIT ALERT" in message
 
 
+def test_format_alert_labels_early_forecast() -> None:
+    message = format_alert(_candidate(), phase="EARLY")
+
+    assert "EARLY TRANSIT FORECAST" in message
+
+
+def test_format_alert_labels_confirmed_alert() -> None:
+    message = format_alert(_candidate(), phase="CONFIRMED")
+
+    assert "CONFIRMED TRANSIT ALERT" in message
+
+
 def test_format_alert_uses_short_boundaries() -> None:
     lines = format_alert(_candidate()).splitlines()
 

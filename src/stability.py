@@ -30,7 +30,43 @@ def calculate_gs_change(history: Sequence[AircraftState], seconds: int = 60) -> 
     return abs((latest.ground_speed_kt or 0.0) - (baseline.ground_speed_kt or 0.0))
 
 
-def stability_score(ac: AircraftState, history: Sequence[AircraftState]) -> float:
+def has_stable_vertical_trend(
+    history: Sequence[AircraftState],
+    *,
+    level_rate_fpm: float = 500,
+    max_rate_fpm: float = 3000,
+    max_variation_fpm: float = 600,
+    min_points: int = 4,
+    window_seconds: int = 90,
+) -> bool:
+    if not history:
+        return False
+    latest = history[-1]
+    cutoff = latest.timestamp - timedelta(seconds=max(30, window_seconds))
+    rates = [
+        float(point.vertical_rate_fpm)
+        for point in history
+        if point.timestamp >= cutoff and point.vertical_rate_fpm is not None
+    ]
+    if len(rates) < max(3, min_points):
+        return False
+    if abs(rates[-1]) <= max(0.0, level_rate_fpm):
+        return False
+    if any(abs(rate) > max_rate_fpm for rate in rates):
+        return False
+    directions = {1 if rate > 0 else -1 if rate < 0 else 0 for rate in rates}
+    if len(directions) != 1 or 0 in directions:
+        return False
+    return max(rates) - min(rates) <= max(0.0, max_variation_fpm)
+
+
+def stability_score(
+    ac: AircraftState,
+    history: Sequence[AircraftState],
+    *,
+    vertical_rate_stable_fpm: float = 500,
+    stable_vertical_trend: bool = False,
+) -> float:
     score = 1.0
 
     if ac.altitude_ft is None:
@@ -45,11 +81,11 @@ def stability_score(ac: AircraftState, history: Sequence[AircraftState]) -> floa
     elif ac.altitude_ft < 25000:
         score *= 0.85
 
-    if ac.vertical_rate_fpm is not None:
+    if ac.vertical_rate_fpm is not None and not stable_vertical_trend:
         vr = abs(ac.vertical_rate_fpm)
-        if vr > 500:
+        if vr > vertical_rate_stable_fpm:
             score *= 0.55
-        if vr > 1000:
+        if vr > 2 * vertical_rate_stable_fpm:
             score *= 0.20
 
     track_change_60s = calculate_track_change(history, seconds=60)
@@ -68,10 +104,20 @@ def stability_score(ac: AircraftState, history: Sequence[AircraftState]) -> floa
     return max(0.0, min(1.0, score))
 
 
-def rejection_reason_for_unstable(ac: AircraftState, history: Sequence[AircraftState]) -> str | None:
+def rejection_reason_for_unstable(
+    ac: AircraftState,
+    history: Sequence[AircraftState],
+    *,
+    vertical_rate_stable_fpm: float = 500,
+    stable_vertical_trend: bool = False,
+) -> str | None:
     if ac.altitude_ft is None or ac.altitude_ft < 5000:
         return "LOW_ALTITUDE"
-    if ac.vertical_rate_fpm is not None and abs(ac.vertical_rate_fpm) > 1000:
+    if (
+        ac.vertical_rate_fpm is not None
+        and abs(ac.vertical_rate_fpm) > 2 * vertical_rate_stable_fpm
+        and not stable_vertical_trend
+    ):
         return "HIGH_VERTICAL_RATE"
     if calculate_track_change(history, 60) > 30:
         return "UNSTABLE_TRACK"

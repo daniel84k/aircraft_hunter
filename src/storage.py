@@ -162,6 +162,7 @@ class Storage:
         transit_time_utc: datetime,
         event_window_seconds: int,
         confirmed_only: bool = False,
+        alert_type: str | None = None,
     ) -> bool:
         return self.alert_event_summary(
             icao=icao,
@@ -169,6 +170,7 @@ class Storage:
             transit_time_utc=transit_time_utc,
             event_window_seconds=event_window_seconds,
             confirmed_only=confirmed_only,
+            alert_type=alert_type,
         ) is not None
 
     def alert_event_summary(
@@ -179,10 +181,19 @@ class Storage:
         transit_time_utc: datetime,
         event_window_seconds: int,
         confirmed_only: bool = False,
+        alert_type: str | None = None,
     ) -> dict[str, float] | None:
         window = max(60, int(event_window_seconds))
         event_slot = _event_slot(transit_time_utc, window)
-        confirmed_filter = "AND tc.rejection_reason IS NULL" if confirmed_only else ""
+        confirmed_filter = (
+            "AND a.alert_type <> 'EARLY' AND tc.rejection_reason IS NULL"
+            if confirmed_only
+            else ""
+        )
+        alert_type_filter = "AND a.alert_type = %s" if alert_type else ""
+        params = [icao, body, window, event_slot]
+        if alert_type:
+            params.append(alert_type)
         with self.conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -195,8 +206,9 @@ class Storage:
                   AND lower(tc.body) = lower(%s)
                   AND floor(extract(epoch from tc.transit_time_utc) / %s) = %s
                   {confirmed_filter}
+                  {alert_type_filter}
                 """,
-                (icao, body, window, event_slot),
+                params,
             )
             row = cur.fetchone()
             if not row or row[0] is None:

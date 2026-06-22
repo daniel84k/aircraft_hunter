@@ -78,6 +78,7 @@ class TelegramNotifier:
         min_distance_improvement_km: float,
         min_offset_improvement_ratio: float,
         event_window_seconds: int = 600,
+        notification_phase: str | None = None,
     ) -> bool:
         event_slot = int(candidate.transit_time_utc.timestamp()) // max(60, event_window_seconds)
         key = (candidate.aircraft.icao.lower(), candidate.body.lower(), str(event_slot))
@@ -91,13 +92,14 @@ class TelegramNotifier:
             update_cooldown_seconds,
             min_distance_improvement_km,
             min_offset_improvement_ratio,
+            notification_phase,
         ):
             return False
         self.send_message(text)
         self.send_location(candidate.observer_lat, candidate.observer_lon)
         self._sent_candidates[key] = SentCandidate(
             sent_at=now,
-            status=candidate.status,
+            status=notification_phase or candidate.status,
             observer_distance_km=candidate.observer_distance_km,
             offset_body_diameters=candidate.offset_body_diameters,
         )
@@ -112,7 +114,10 @@ class TelegramNotifier:
         update_cooldown_seconds: int,
         min_distance_improvement_km: float,
         min_offset_improvement_ratio: float,
+        notification_phase: str | None = None,
     ) -> bool:
+        if previous.status == "EARLY" and notification_phase == "CONFIRMED":
+            return True
         if now < previous.sent_at + max(30, update_cooldown_seconds):
             return False
         if now >= previous.sent_at + max(60, cooldown_seconds):

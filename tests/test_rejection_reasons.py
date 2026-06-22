@@ -5,7 +5,7 @@ from config import load_settings
 from airport_filter import AirportTrafficMatch
 from models import AircraftState, TransitCandidate
 from main import REJECTION_REASONS
-from main import classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km, suppress_airport_traffic_alert, update_candidate_convergence
+from main import candidate_notification_phase, classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km, suppress_airport_traffic_alert, update_candidate_convergence
 
 
 def test_rejection_reasons_include_required_values() -> None:
@@ -205,6 +205,33 @@ def test_notification_convergence_resets_when_time_moves() -> None:
     assert ready is False
     assert count == 1
     assert reason == "TRANSIT_TIME_MOVED"
+
+
+def test_notification_uses_early_then_confirmed_phase() -> None:
+    settings = replace(
+        load_settings(),
+        alert_min_score=0.7,
+        early_notification_consecutive_cycles=2,
+        notification_consecutive_cycles=3,
+    )
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.status = "ALERT_READY"
+
+    assert candidate_notification_phase(candidate, 1, settings) is None
+    assert candidate_notification_phase(candidate, 2, settings) == "EARLY"
+    assert candidate_notification_phase(candidate, 3, settings) == "CONFIRMED"
+
+
+def test_low_score_observation_candidate_does_not_send_early() -> None:
+    settings = replace(
+        load_settings(),
+        alert_min_score=0.7,
+        early_notification_consecutive_cycles=2,
+    )
+    candidate = _candidate(settings, score=0.65, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.status = "OBSERVATION_CANDIDATE"
+
+    assert candidate_notification_phase(candidate, 3, settings) is None
 
 
 def test_strict_airport_traffic_is_stored_without_notification() -> None:

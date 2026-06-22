@@ -38,7 +38,7 @@ def flightradar_url(candidate: TransitCandidate) -> str:
     return f"https://www.flightradar24.com/{quote(flight_id)}"
 
 
-def format_alert(candidate: TransitCandidate, *, better: bool = False) -> str:
+def format_alert(candidate: TransitCandidate, *, better: bool = False, phase: str | None = None) -> str:
     aircraft = candidate.aircraft
     warsaw_time = candidate.transit_time_utc.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m-%d %H:%M:%S %Z")
     seconds = max(0, int((candidate.transit_time_utc - datetime.now(timezone.utc)).total_seconds()))
@@ -46,6 +46,10 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False) -> str:
     m, s = divmod(rem, 60)
     if better:
         title = "BETTER TRANSIT ALERT"
+    elif phase == "EARLY":
+        title = "EARLY TRANSIT FORECAST"
+    elif phase == "CONFIRMED":
+        title = "CONFIRMED TRANSIT ALERT"
     else:
         title = "TRANSIT ALERT" if candidate.status == "ALERT_READY" else "OBSERVATION CANDIDATE"
     return f"""===

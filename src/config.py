@@ -29,6 +29,10 @@ class Settings:
     airport_exclusion_nm: float
     airport_traffic_filters: str
     max_vertical_rate_stable_fpm: float
+    allow_stable_vertical_trend: bool
+    max_stable_vertical_rate_fpm: float
+    max_vertical_rate_variation_fpm: float
+    stable_vertical_trend_min_points: int
     max_track_change_60s_deg: float
     max_gs_change_60s_kt: float
     alert_min_score: float
@@ -39,6 +43,7 @@ class Settings:
     observation_candidate_min_score: float
     observation_candidate_max_lead_seconds: int
     notification_require_convergence: bool
+    early_notification_consecutive_cycles: int
     notification_consecutive_cycles: int
     notification_max_time_shift_seconds: float
     notification_max_observer_shift_km: float
@@ -101,6 +106,10 @@ def load_settings() -> Settings:
         airport_exclusion_nm=float(os.getenv("AIRPORT_EXCLUSION_NM", "20")),
         airport_traffic_filters=os.getenv("AIRPORT_TRAFFIC_FILTERS", "EPWA:strict:35,EPMO:soft:12"),
         max_vertical_rate_stable_fpm=float(os.getenv("MAX_VERTICAL_RATE_STABLE_FPM", "500")),
+        allow_stable_vertical_trend=_get_bool("ALLOW_STABLE_VERTICAL_TREND", True),
+        max_stable_vertical_rate_fpm=float(os.getenv("MAX_STABLE_VERTICAL_RATE_FPM", "3000")),
+        max_vertical_rate_variation_fpm=float(os.getenv("MAX_VERTICAL_RATE_VARIATION_FPM", "600")),
+        stable_vertical_trend_min_points=int(os.getenv("STABLE_VERTICAL_TREND_MIN_POINTS", "4")),
         max_track_change_60s_deg=float(os.getenv("MAX_TRACK_CHANGE_60S_DEG", "8")),
         max_gs_change_60s_kt=float(os.getenv("MAX_GS_CHANGE_60S_KT", "40")),
         alert_min_score=float(os.getenv("ALERT_MIN_SCORE", "0.70")),
@@ -111,6 +120,7 @@ def load_settings() -> Settings:
         observation_candidate_min_score=float(os.getenv("OBSERVATION_CANDIDATE_MIN_SCORE", "0.65")),
         observation_candidate_max_lead_seconds=int(os.getenv("OBSERVATION_CANDIDATE_MAX_LEAD_SECONDS", "600")),
         notification_require_convergence=_get_bool("NOTIFICATION_REQUIRE_CONVERGENCE", True),
+        early_notification_consecutive_cycles=int(os.getenv("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", "2")),
         notification_consecutive_cycles=int(os.getenv("NOTIFICATION_CONSECUTIVE_CYCLES", "3")),
         notification_max_time_shift_seconds=float(os.getenv("NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "5")),
         notification_max_observer_shift_km=float(os.getenv("NOTIFICATION_MAX_OBSERVER_SHIFT_KM", "0.5")),

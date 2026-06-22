@@ -19,7 +19,7 @@ from models import AircraftState, TransitCandidate
 from observer_solver import google_maps_url, google_nav_url, solve_observer_point
 from prediction import predict_aircraft_path
 from scoring import final_score
-from stability import rejection_reason_for_unstable, stability_score
+from stability import has_stable_vertical_trend, rejection_reason_for_unstable, stability_score
 from storage import Storage
 from telegram import TelegramNotifier
 from transit_detector import closest_alignment, detect_transit_candidates
@@ -133,6 +133,34 @@ def notification_event_key(candidate: TransitCandidate, event_window_seconds: in
 def notification_sort_key(candidate: TransitCandidate) -> tuple[int, float, float, float]:
     status_rank = 0 if candidate.status == "ALERT_READY" else 1
     return (status_rank, candidate.observer_distance_km, candidate.angular_separation_deg, -candidate.score)
+
+
+def candidate_notification_phase(
+    candidate: TransitCandidate,
+    convergence_count: int,
+    settings: Settings,
+    *,
+    convergence_enabled: bool = True,
+) -> str | None:
+    if candidate.status not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+        return None
+    if not convergence_enabled:
+        convergence_count = max(
+            settings.early_notification_consecutive_cycles,
+            settings.notification_consecutive_cycles,
+        )
+    if (
+        candidate.status == "ALERT_READY"
+        and convergence_count >= max(1, settings.notification_consecutive_cycles)
+    ):
+        return "CONFIRMED"
+    early_quality = (
+        candidate.score >= settings.alert_min_score
+        and candidate.offset_body_diameters <= settings.max_offset_body_diameters_for_alert
+    )
+    if early_quality and convergence_count >= max(1, settings.early_notification_consecutive_cycles):
+        return "EARLY"
+    return None
 
 
 def is_better_notification(
@@ -428,7 +456,19 @@ def run_cycle(
     try:
         for ac in aircraft:
             history = list(histories[ac.icao])
-            stable_score = stability_score(ac, history)
+            stable_vertical_trend = settings.allow_stable_vertical_trend and has_stable_vertical_trend(
+                history,
+                level_rate_fpm=settings.max_vertical_rate_stable_fpm,
+                max_rate_fpm=settings.max_stable_vertical_rate_fpm,
+                max_variation_fpm=settings.max_vertical_rate_variation_fpm,
+                min_points=settings.stable_vertical_trend_min_points,
+            )
+            stable_score = stability_score(
+                ac,
+                history,
+                vertical_rate_stable_fpm=settings.max_vertical_rate_stable_fpm,
+                stable_vertical_trend=stable_vertical_trend,
+            )
             if settings.run_mode == "debug":
                 cycle_log(
                     cycle_id,
@@ -448,7 +488,23 @@ def run_cycle(
                     stable_score,
                     len(history),
                 )
-            reject = rejection_reason_for_unstable(ac, history)
+            reject = rejection_reason_for_unstable(
+                ac,
+                history,
+                vertical_rate_stable_fpm=settings.max_vertical_rate_stable_fpm,
+                stable_vertical_trend=stable_vertical_trend,
+            )
+            if stable_vertical_trend and settings.run_mode == "debug":
+                cycle_log(
+                    cycle_id,
+                    2,
+                    "VERTICAL_TREND_ACCEPTED",
+                    "aircraft=%s callsign=%s vertical_rate_fpm=%s history_points=%s",
+                    ac.icao,
+                    ac.callsign or "-",
+                    f"{ac.vertical_rate_fpm:.0f}" if ac.vertical_rate_fpm is not None else "-",
+                    len(history),
+                )
             airport_match = classify_airport_traffic(ac, airport_profiles)
             if airport_match:
                 airport_reason = airport_rejection_reason(airport_match)
@@ -697,42 +753,64 @@ def run_cycle(
             alert_type = "CONSOLE"
             is_better_alert = False
             eligible_for_notification = candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}
-            convergence_ready = True
+            convergence_enabled = (
+                settings.notification_require_convergence and convergence_tracker is not None
+            )
             convergence_count = 0
             convergence_reason = "DISABLED"
-            if eligible_for_notification and settings.notification_require_convergence and convergence_tracker is not None:
+            if eligible_for_notification and convergence_enabled:
                 event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
                 if event_key in evaluated_events_this_cycle:
-                    convergence_ready = False
                     convergence_reason = "SAME_CYCLE_DUPLICATE"
                 else:
-                    convergence_ready, convergence_count, convergence_reason = update_candidate_convergence(
+                    _confirmed_ready, convergence_count, convergence_reason = update_candidate_convergence(
                         candidate,
                         convergence_tracker,
                         settings,
                         cycle_started,
                     )
                     evaluated_events_this_cycle.add(event_key)
-            if eligible_for_notification and convergence_ready:
-                previous_event = storage.alert_event_summary(
-                    icao=candidate.aircraft.icao,
-                    body=candidate.body,
-                    transit_time_utc=candidate.transit_time_utc,
-                    event_window_seconds=settings.locked_alert_window_seconds,
-                    confirmed_only=(candidate.status == "ALERT_READY"),
-                )
-                duplicate_event = previous_event is not None
-                is_better_alert = is_better_notification(
-                    candidate,
-                    previous_event,
-                    min_distance_improvement_km=settings.telegram_update_min_distance_improvement_km,
-                    min_offset_improvement_ratio=settings.telegram_update_min_offset_improvement_ratio,
-                )
-                if duplicate_event and is_better_alert:
-                    alert_type = "BETTER"
-                elif duplicate_event or (candidate.status == "ALERT_READY" and storage.alert_exists(candidate.dedupe_key)):
-                    candidate.status = "REJECTED"
-                    candidate.rejection_reason = "DUPLICATE_ALERT"
+            notification_phase = candidate_notification_phase(
+                candidate,
+                convergence_count,
+                settings,
+                convergence_enabled=convergence_enabled,
+            )
+            notification_ready = notification_phase is not None
+            if eligible_for_notification and notification_ready:
+                if notification_phase == "EARLY":
+                    duplicate_event = storage.alert_event_exists(
+                        icao=candidate.aircraft.icao,
+                        body=candidate.body,
+                        transit_time_utc=candidate.transit_time_utc,
+                        event_window_seconds=settings.locked_alert_window_seconds,
+                        alert_type="EARLY",
+                    )
+                    alert_type = "EARLY"
+                    if duplicate_event:
+                        candidate.status = "REJECTED"
+                        candidate.rejection_reason = "DUPLICATE_ALERT"
+                else:
+                    previous_event = storage.alert_event_summary(
+                        icao=candidate.aircraft.icao,
+                        body=candidate.body,
+                        transit_time_utc=candidate.transit_time_utc,
+                        event_window_seconds=settings.locked_alert_window_seconds,
+                        confirmed_only=True,
+                    )
+                    duplicate_event = previous_event is not None
+                    is_better_alert = is_better_notification(
+                        candidate,
+                        previous_event,
+                        min_distance_improvement_km=settings.telegram_update_min_distance_improvement_km,
+                        min_offset_improvement_ratio=settings.telegram_update_min_offset_improvement_ratio,
+                    )
+                    alert_type = "CONFIRMED"
+                    if duplicate_event and is_better_alert:
+                        alert_type = "BETTER"
+                    elif duplicate_event or storage.alert_exists(f"confirmed:{candidate.dedupe_key}"):
+                        candidate.status = "REJECTED"
+                        candidate.rejection_reason = "DUPLICATE_ALERT"
             candidate_id = storage.insert_candidate(run_id, candidate)
             saved_count += 1
             if settings.run_mode == "debug":
@@ -748,7 +826,16 @@ def run_cycle(
                     candidate.rejection_reason or "-",
                     candidate.score,
                 )
-                if eligible_for_notification and not convergence_ready:
+                if eligible_for_notification and not notification_ready:
+                    early_quality = (
+                        candidate.score >= settings.alert_min_score
+                        and candidate.offset_body_diameters <= settings.max_offset_body_diameters_for_alert
+                    )
+                    required_cycles = (
+                        settings.early_notification_consecutive_cycles
+                        if early_quality
+                        else settings.notification_consecutive_cycles
+                    )
                     cycle_log(
                         cycle_id,
                         5,
@@ -758,18 +845,18 @@ def run_cycle(
                         candidate.aircraft.callsign or "-",
                         candidate.body,
                         convergence_count,
-                        settings.notification_consecutive_cycles,
+                        required_cycles,
                         convergence_reason,
                     )
-            if eligible_for_notification and not convergence_ready:
+            if eligible_for_notification and not notification_ready:
                 continue
             if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
                 event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
                 if event_key in notified_events_this_cycle:
                     continue
-                if candidate.status == "OBSERVATION_CANDIDATE" and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
+                if notification_phase == "EARLY" and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
                     continue
-                message = format_alert(candidate, better=is_better_alert)
+                message = format_alert(candidate, better=is_better_alert, phase=notification_phase)
                 notification_sent = True
                 if notifier:
                     notification_sent = notifier.send_candidate(
@@ -780,24 +867,33 @@ def run_cycle(
                         settings.telegram_update_min_distance_improvement_km,
                         settings.telegram_update_min_offset_improvement_ratio,
                         settings.locked_alert_window_seconds,
+                        notification_phase,
                     )
                 if not notification_sent:
                     continue
                 print(message, flush=True)
-                storage.insert_alert(candidate_id, message, candidate.dedupe_key, datetime.now(timezone.utc), alert_type)
+                notification_dedupe_key = f"{notification_phase.lower()}:{candidate.dedupe_key}"
+                storage.insert_alert(
+                    candidate_id,
+                    message,
+                    notification_dedupe_key,
+                    datetime.now(timezone.utc),
+                    alert_type,
+                )
                 alert_count += 1
-                if candidate.status == "OBSERVATION_CANDIDATE":
+                if notification_phase == "EARLY":
                     notified_candidates_this_cycle += 1
                 notified_events_this_cycle.add(event_key)
                 cycle_log(
                     cycle_id,
                     5,
                     "ALERT_SENT",
-                    "candidate_id=%s aircraft=%s callsign=%s body=%s score=%.2f observer_lat=%.6f observer_lon=%.6f",
+                    "candidate_id=%s aircraft=%s callsign=%s body=%s phase=%s score=%.2f observer_lat=%.6f observer_lon=%.6f",
                     candidate_id,
                     candidate.aircraft.icao,
                     candidate.aircraft.callsign or "-",
                     candidate.body,
+                    notification_phase,
                     candidate.score,
                     candidate.observer_lat,
                     candidate.observer_lon,
