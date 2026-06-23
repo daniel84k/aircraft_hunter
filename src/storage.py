@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import json
 import logging
 
-from models import AircraftState, TransitCandidate
+from models import AircraftState, PredictedPoint, TransitCandidate
 from validation import ActualObservation, ValidationResult
 
 
@@ -13,6 +13,38 @@ LOG = logging.getLogger(__name__)
 
 def _event_slot(transit_time_utc: datetime, event_window_seconds: int) -> int:
     return int(transit_time_utc.timestamp()) // max(60, int(event_window_seconds))
+
+
+def serialize_prediction_path(
+    path: list[PredictedPoint],
+    sample_interval_seconds: int = 5,
+) -> dict:
+    """Build a compact, interpolation-friendly snapshot of a predicted path."""
+    if not path:
+        return {"version": 1, "points": []}
+    interval = max(1, int(sample_interval_seconds))
+    sampled: list[PredictedPoint] = []
+    last_timestamp: datetime | None = None
+    for point in path:
+        if (
+            last_timestamp is None
+            or (point.timestamp - last_timestamp).total_seconds() >= interval
+            or point is path[-1]
+        ):
+            sampled.append(point)
+            last_timestamp = point.timestamp
+    return {
+        "version": 1,
+        "points": [
+            [
+                round(point.timestamp.timestamp(), 3),
+                round(point.lat, 7),
+                round(point.lon, 7),
+                round(point.altitude_ft, 1) if point.altitude_ft is not None else None,
+            ]
+            for point in sampled
+        ],
+    }
 
 
 class Storage:
@@ -148,6 +180,64 @@ class Storage:
             candidate_id = cur.fetchone()[0]
         self.conn.commit()
         return candidate_id
+
+    def upsert_event_trajectory(
+        self,
+        candidate_id: int,
+        candidate: TransitCandidate,
+        payload: dict,
+        *,
+        event_window_seconds: int,
+        sample_interval_seconds: int = 5,
+    ) -> bool:
+        points = payload.get("points") or []
+        if not points:
+            return False
+        event_slot = _event_slot(candidate.transit_time_utc, event_window_seconds)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO event_trajectory_snapshots (
+                    candidate_id, icao, body, event_slot, score, offset_body_diameters,
+                    source_observed_at, path_start_utc, path_end_utc,
+                    sample_interval_seconds, point_count, points
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,to_timestamp(%s),to_timestamp(%s),%s,%s,%s::jsonb)
+                ON CONFLICT (icao, body, event_slot) DO UPDATE SET
+                    candidate_id=EXCLUDED.candidate_id,
+                    score=EXCLUDED.score,
+                    offset_body_diameters=EXCLUDED.offset_body_diameters,
+                    source_observed_at=EXCLUDED.source_observed_at,
+                    path_start_utc=EXCLUDED.path_start_utc,
+                    path_end_utc=EXCLUDED.path_end_utc,
+                    sample_interval_seconds=EXCLUDED.sample_interval_seconds,
+                    point_count=EXCLUDED.point_count,
+                    points=EXCLUDED.points,
+                    updated_at=now()
+                WHERE EXCLUDED.score > event_trajectory_snapshots.score
+                   OR (
+                       EXCLUDED.score = event_trajectory_snapshots.score
+                       AND EXCLUDED.offset_body_diameters < event_trajectory_snapshots.offset_body_diameters
+                   )
+                RETURNING id
+                """,
+                (
+                    candidate_id,
+                    candidate.aircraft.icao.lower(),
+                    candidate.body.lower(),
+                    event_slot,
+                    candidate.score,
+                    candidate.offset_body_diameters,
+                    candidate.aircraft.timestamp,
+                    points[0][0],
+                    points[-1][0],
+                    max(1, int(sample_interval_seconds)),
+                    len(points),
+                    json.dumps(payload, separators=(",", ":")),
+                ),
+            )
+            stored = cur.fetchone() is not None
+        self.conn.commit()
+        return stored
 
     def alert_exists(self, dedupe_key: str) -> bool:
         with self.conn.cursor() as cur:

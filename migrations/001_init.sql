@@ -149,3 +149,28 @@ ADD COLUMN IF NOT EXISTS horizontal_offset_body_diameters DOUBLE PRECISION;
 
 ALTER TABLE transit_validations
 ALTER COLUMN source_alert_id DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS event_trajectory_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id BIGINT NOT NULL REFERENCES transit_candidates(id),
+    icao TEXT NOT NULL,
+    body TEXT NOT NULL,
+    event_slot BIGINT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    offset_body_diameters DOUBLE PRECISION NOT NULL,
+    source_observed_at TIMESTAMPTZ NOT NULL,
+    path_start_utc TIMESTAMPTZ NOT NULL,
+    path_end_utc TIMESTAMPTZ NOT NULL,
+    sample_interval_seconds INTEGER NOT NULL,
+    point_count INTEGER NOT NULL,
+    points JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (icao, body, event_slot)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_trajectory_candidate
+ON event_trajectory_snapshots (candidate_id);
+
+CREATE INDEX IF NOT EXISTS idx_event_trajectory_updated_at
+ON event_trajectory_snapshots (updated_at DESC);

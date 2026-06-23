@@ -34,6 +34,23 @@ def get_body_states(lat: float, lon: float, timestamp: datetime) -> list[Celesti
         return []
 
 
+def get_body_state(lat: float, lon: float, timestamp: datetime, body_name: str) -> CelestialBodyState | None:
+    """Calculate one body without the extra Moon illumination work used by the live cycle."""
+    normalized = body_name.strip().lower()
+    if normalized not in {"sun", "moon"}:
+        return None
+    try:
+        eph, ts, wgs84 = _load_skyfield()
+        t = ts.from_datetime(timestamp)
+        observer = eph["earth"] + wgs84.latlon(lat, lon)
+        name = "Sun" if normalized == "sun" else "Moon"
+        radius_deg = 0.2666 if normalized == "sun" else 0.2725
+        return _body_state(name, eph[normalized], observer, t, radius_deg, None)
+    except Exception as exc:
+        LOG.error("Ephemeris calculation failed body=%s error=%s", body_name, exc)
+        return None
+
+
 def _body_state(body: str, target, observer, t, radius_deg: float, illumination: float | None) -> CelestialBodyState:
     apparent = observer.at(t).observe(target).apparent()
     alt, az, _distance = apparent.altaz()

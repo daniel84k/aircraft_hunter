@@ -37,12 +37,10 @@ def solve_observer_point(
     if best.offset_body_diameters <= 0.25:
         return best
 
-    for radius in _search_radii(max_relocation_km):
-        for bearing in range(0, 360, 15):
-            lat, lon = destination_point(user_lat, user_lon, bearing, min(radius, max_relocation_km))
-            candidate = _solution_at(user_lat, user_lon, lat, lon, aircraft_point, body, 0.82)
-            if candidate.angular_separation_deg < best.angular_separation_deg:
-                best = candidate
+    for lat, lon, _radius, _bearing in observer_search_grid(user_lat, user_lon, max_relocation_km)[1:]:
+        candidate = _solution_at(user_lat, user_lon, lat, lon, aircraft_point, body, 0.82)
+        if candidate.angular_separation_deg < best.angular_separation_deg:
+            best = candidate
 
     if best.distance_km > max_relocation_km:
         return ObserverSolution(
@@ -55,6 +53,22 @@ def solve_observer_point(
             "OBSERVER_POINT_TOO_FAR",
         )
     return best
+
+
+def observer_search_grid(
+    user_lat: float,
+    user_lon: float,
+    max_relocation_km: float,
+) -> list[tuple[float, float, float, float | None]]:
+    """Return the exact concentric points sampled by the observer solver."""
+    points: list[tuple[float, float, float, float | None]] = [
+        (user_lat, user_lon, 0.0, None)
+    ]
+    for radius in _search_radii(max_relocation_km):
+        for bearing in range(0, 360, 15):
+            lat, lon = destination_point(user_lat, user_lon, bearing, min(radius, max_relocation_km))
+            points.append((lat, lon, radius, float(bearing)))
+    return points
 
 
 def _search_radii(max_relocation_km: float) -> list[float]:

@@ -20,7 +20,7 @@ from observer_solver import google_maps_url, google_nav_url, solve_observer_poin
 from prediction import predict_aircraft_path
 from scoring import final_score
 from stability import has_stable_vertical_trend, rejection_reason_for_unstable, stability_score
-from storage import Storage
+from storage import Storage, serialize_prediction_path
 from telegram import TelegramNotifier
 from transit_detector import closest_alignment, detect_transit_candidates
 from ui import start_ui_server
@@ -452,6 +452,7 @@ def run_cycle(
     ephemeris_cache = {}
     geometry_inputs = []
     airport_matches = {}
+    trajectory_payloads: dict[str, dict] = {}
 
     try:
         for ac in aircraft:
@@ -599,6 +600,7 @@ def run_cycle(
                     ac.callsign or "-",
                 )
                 continue
+            trajectory_payloads[ac.icao.lower()] = serialize_prediction_path(path)
 
             max_aircraft_elevation = max(p.elevation_deg for p in path)
             min_aircraft_range = min(p.range_km for p in path)
@@ -813,6 +815,26 @@ def run_cycle(
                         candidate.rejection_reason = "DUPLICATE_ALERT"
             candidate_id = storage.insert_candidate(run_id, candidate)
             saved_count += 1
+            trajectory_payload = trajectory_payloads.get(candidate.aircraft.icao.lower())
+            if trajectory_payload:
+                snapshot_updated = storage.upsert_event_trajectory(
+                    candidate_id,
+                    candidate,
+                    trajectory_payload,
+                    event_window_seconds=settings.locked_alert_window_seconds,
+                )
+                if snapshot_updated and settings.run_mode == "debug":
+                    cycle_log(
+                        cycle_id,
+                        4,
+                        "TRAJECTORY_SNAPSHOT_STORED",
+                        "candidate_id=%s aircraft=%s body=%s score=%.2f points=%s",
+                        candidate_id,
+                        candidate.aircraft.icao,
+                        candidate.body,
+                        candidate.score,
+                        len(trajectory_payload["points"]),
+                    )
             if settings.run_mode == "debug":
                 cycle_log(
                     cycle_id,
