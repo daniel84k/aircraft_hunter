@@ -58,6 +58,79 @@ def test_dashboard_navigation_prioritizes_analysis() -> None:
     assert "collapsible:true" in ui.INDEX_HTML
 
 
+def test_dashboard_filter_funnel_is_clickable() -> None:
+    assert "setFunnelFocus('status'" in ui.INDEX_HTML
+    assert "showTab('logs')" in ui.INDEX_HTML
+
+
+def test_alert_dashboard_focuses_on_stage_time_and_result() -> None:
+    assert "Historia powiadomień" in ui.INDEX_HTML
+    assert "Czas na reakcję" in ui.INDEX_HTML
+    assert "po dojeździe" in ui.INDEX_HTML
+    assert "validation_result" in ui.INDEX_HTML
+
+
+def test_validation_dashboard_explains_hit_and_miss() -> None:
+    assert "TRAFIONY" in ui.INDEX_HTML
+    assert "CHYBIONY" in ui.INDEX_HTML
+    assert "Minięcie głównie" in ui.INDEX_HTML
+    assert "Prognoza → ADS-B" in ui.INDEX_HTML
+    assert "Pełna analiza" in ui.INDEX_HTML
+
+
+def test_mobile_dashboard_uses_labeled_cards_and_full_screen_dialog() -> None:
+    assert 'data-label="${esc(h.name)}"' in ui.INDEX_HTML
+    assert "table,tbody,tr,td{display:block" in ui.INDEX_HTML
+    assert "height:100dvh" in ui.INDEX_HTML
+    assert ".life-cycle-rail{grid-template-columns:1fr" in ui.INDEX_HTML
+
+
+def test_alerts_expose_travel_margin_and_validation(monkeypatch) -> None:
+    sent_at = datetime(2026, 6, 23, 14, 43, 46, tzinfo=timezone.utc)
+    monkeypatch.setattr(ui, "_window", lambda params: (sent_at, sent_at))
+    monkeypatch.setenv("TRAVEL_SPEED_KMH", "50")
+    monkeypatch.setenv("REACH_SAFETY", "0.8")
+    monkeypatch.setattr(
+        ui,
+        "_query",
+        lambda database_url, sql, params=(): [{
+            "alert_id": 1,
+            "alert_type": "EARLY",
+            "printed_at": sent_at,
+            "candidate_id": 7,
+            "icao": "89630c",
+            "callsign": "UAE158",
+            "body": "Moon",
+            "score": 0.8,
+            "transit_time_utc": sent_at + timedelta(seconds=209),
+            "lead_seconds": 209,
+            "predicted_offset_body_diameters": 0.097,
+            "observer_distance_km": 1.25,
+            "google_maps_url": "https://maps.example/point",
+            "event_slot": 123,
+            "validation_result": "MISS",
+            "actual_offset_body_diameters": 1.368,
+            "time_error_seconds": 4.8,
+            "validated_at": sent_at + timedelta(minutes=5),
+        }],
+    )
+
+    result = ui._alerts("postgresql://test", {"range": ["today"]})
+
+    assert result["summary"] == {
+        "alerts": 1,
+        "events": 1,
+        "early": 1,
+        "confirmed": 0,
+        "better": 0,
+        "hit": 0,
+        "miss": 1,
+        "avg_lead_seconds": 209.0,
+    }
+    assert result["items"][0]["travel_seconds"] == 112.5
+    assert result["items"][0]["preparation_margin_seconds"] == 96.5
+
+
 def test_sky_track_returns_offsets_in_body_diameters(monkeypatch) -> None:
     timestamp = datetime(2026, 6, 23, 10, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(
@@ -98,3 +171,73 @@ def test_closest_sky_result_interpolates_crossing_between_adsb_samples() -> None
     assert result["result"] == "HIT"
     assert round(result["offset_body_diameters"], 3) == 0.2
     assert result["closest_time_utc"] == timestamp + timedelta(seconds=5)
+
+
+def test_event_detail_exposes_confirmation_threshold(monkeypatch) -> None:
+    transit_time = datetime(2026, 6, 23, 10, 15, tzinfo=timezone.utc)
+    created_at = transit_time - timedelta(minutes=4)
+    candidate_row = {
+        "id": 7,
+        "prediction_run_id": 3,
+        "icao": "abc123",
+        "callsign": "LOT123",
+        "aircraft_type": "A320",
+        "body": "sun",
+        "transit_time_utc": transit_time,
+        "created_at": created_at,
+        "observer_lat": 52.0,
+        "observer_lon": 21.0,
+        "observer_distance_km": 2.5,
+        "score": 0.81,
+        "confidence": 0.9,
+        "offset_body_diameters": 0.2,
+        "angular_separation_deg": 0.1,
+        "body_radius_deg": 0.25,
+        "body_azimuth_deg": 120.0,
+        "body_elevation_deg": 18.0,
+        "status": "OBSERVATION_CANDIDATE",
+        "rejection_reason": None,
+        "stability_score": 0.9,
+        "alignment_score": 0.8,
+        "altitude_score": 0.7,
+        "body_elevation_score": 0.6,
+        "aircraft_range_score": 0.8,
+        "lead_time_score": 0.9,
+        "observer_distance_score": 0.8,
+        "snapshot_id": None,
+        "source_observed_at": created_at,
+        "path_start_utc": None,
+        "path_end_utc": None,
+        "sample_interval_seconds": None,
+        "point_count": None,
+        "points": {"version": 1, "points": []},
+        "home_lat": 52.0,
+        "home_lon": 21.0,
+    }
+
+    def fake_query(database_url, sql, params=()):
+        if "FROM transit_candidates c" in sql:
+            return [candidate_row]
+        if "WITH ranked AS" in sql:
+            return [{
+                "created_at": created_at,
+                "transit_time_utc": transit_time,
+                "score": 0.81,
+                "offset_body_diameters": 0.2,
+                "observer_lat": 52.0,
+                "observer_lon": 21.0,
+                "status": "OBSERVATION_CANDIDATE",
+                "rejection_reason": None,
+            }]
+        if "FROM aircraft_observations" in sql:
+            return []
+        raise AssertionError(f"Unexpected query: {sql}")
+
+    monkeypatch.setenv("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", "2")
+    monkeypatch.setattr(ui, "_query", fake_query)
+
+    result = ui._event_detail("postgresql://test", 7)
+
+    assert result["required_early_cycles"] == 2
+    assert len(result["event_series"]) == 1
+    assert result["actual_result"] is None

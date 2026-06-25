@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 from geo import destination_point, haversine_distance_km, topocentric_aircraft_position, angular_separation_deg
 from models import CelestialBodyState, PredictedPoint
@@ -61,6 +62,15 @@ def observer_search_grid(
     max_relocation_km: float,
 ) -> list[tuple[float, float, float, float | None]]:
     """Return the exact concentric points sampled by the observer solver."""
+    return list(_observer_search_grid_cached(user_lat, user_lon, max_relocation_km))
+
+
+@lru_cache(maxsize=32)
+def _observer_search_grid_cached(
+    user_lat: float,
+    user_lon: float,
+    max_relocation_km: float,
+) -> tuple[tuple[float, float, float, float | None], ...]:
     points: list[tuple[float, float, float, float | None]] = [
         (user_lat, user_lon, 0.0, None)
     ]
@@ -68,7 +78,7 @@ def observer_search_grid(
         for bearing in range(0, 360, 15):
             lat, lon = destination_point(user_lat, user_lon, bearing, min(radius, max_relocation_km))
             points.append((lat, lon, radius, float(bearing)))
-    return points
+    return tuple(points)
 
 
 def _search_radii(max_relocation_km: float) -> list[float]:

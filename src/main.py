@@ -12,7 +12,7 @@ from airport_filter import classify_airport_traffic, parse_airport_filter_profil
 from alerts import dedupe_key, format_alert
 from config import Settings, load_settings
 from db import connect, run_migrations
-from ephemeris import get_body_states
+from ephemeris import get_body_states, get_body_states_many
 from geo import haversine_distance_km
 from logging_config import configure_logging
 from models import AircraftState, TransitCandidate
@@ -304,16 +304,45 @@ def prune_history(history: deque[AircraftState], now: datetime, keep_seconds: in
         history.popleft()
 
 
-def coarse_geometry_check(settings: Settings, path, ephemeris_cache: dict):
+def remaining_cycle_delay(cycle_started_monotonic: float, interval_seconds: float, now_monotonic: float) -> float:
+    """Return only the unused part of the configured start-to-start interval."""
+    elapsed = max(0.0, now_monotonic - cycle_started_monotonic)
+    return max(0.0, float(interval_seconds) - elapsed)
+
+
+def _coarse_sampled_path(settings: Settings, path):
     sample_step = max(1, COARSE_GEOMETRY_STEP_SECONDS // max(1, settings.prediction_step_seconds))
     sampled = path[::sample_step]
     if path[-1] not in sampled:
         sampled.append(path[-1])
+    return sampled
+
+
+def populate_ephemeris_cache(settings: Settings, ephemeris_cache: dict, timestamps) -> None:
+    """Populate exact requested timestamps in one batch, with scalar fallback."""
+    missing = list(dict.fromkeys(timestamp for timestamp in timestamps if timestamp not in ephemeris_cache))
+    if not missing:
+        return
+    ephemeris_cache.update(
+        get_body_states_many(settings.user_lat, settings.user_lon, missing)
+    )
+    # Preserve the previous failure semantics and calculation path if a batch
+    # cannot produce one or more timestamps.
+    for timestamp in missing:
+        if timestamp not in ephemeris_cache:
+            ephemeris_cache[timestamp] = get_body_states(
+                settings.user_lat,
+                settings.user_lon,
+                timestamp,
+            )
+
+
+def coarse_geometry_check(settings: Settings, path, ephemeris_cache: dict):
+    sampled = _coarse_sampled_path(settings, path)
 
     bodies_by_time = {}
+    populate_ephemeris_cache(settings, ephemeris_cache, (point.timestamp for point in sampled))
     for point in sampled:
-        if point.timestamp not in ephemeris_cache:
-            ephemeris_cache[point.timestamp] = get_body_states(settings.user_lat, settings.user_lon, point.timestamp)
         bodies_by_time[point.timestamp] = ephemeris_cache[point.timestamp]
 
     closest = closest_alignment(sampled, bodies_by_time)
@@ -637,6 +666,14 @@ def run_cycle(
 
             geometry_inputs.append((ac, stable_score, path, min_aircraft_range, max_aircraft_elevation))
 
+        coarse_timestamps = (
+            point.timestamp
+            for _ac, _stable_score, path, _min_range, _max_elevation in geometry_inputs
+            for point in _coarse_sampled_path(settings, path)
+        )
+        populate_ephemeris_cache(settings, ephemeris_cache, coarse_timestamps)
+
+        selected_geometry_inputs = []
         for ac, stable_score, path, min_aircraft_range, max_aircraft_elevation in geometry_inputs:
             coarse_ok, coarse_closest, allowed_separation_deg = coarse_geometry_check(settings, path, ephemeris_cache)
             if not coarse_ok:
@@ -680,10 +717,20 @@ def run_cycle(
                     min_aircraft_range,
                     max_aircraft_elevation,
                 )
+            selected_geometry_inputs.append(
+                (ac, stable_score, path, min_aircraft_range, max_aircraft_elevation)
+            )
+
+        full_timestamps = (
+            point.timestamp
+            for _ac, _stable_score, path, _min_range, _max_elevation in selected_geometry_inputs
+            for point in path
+        )
+        populate_ephemeris_cache(settings, ephemeris_cache, full_timestamps)
+
+        for ac, stable_score, path, min_aircraft_range, max_aircraft_elevation in selected_geometry_inputs:
             bodies_by_time = {}
             for p in path:
-                if p.timestamp not in ephemeris_cache:
-                    ephemeris_cache[p.timestamp] = get_body_states(settings.user_lat, settings.user_lon, p.timestamp)
                 bodies_by_time[p.timestamp] = ephemeris_cache[p.timestamp]
             raw_candidates = detect_transit_candidates(
                 ac,
@@ -945,7 +992,14 @@ def run_cycle(
 
 def main() -> None:
     settings = load_settings()
-    configure_logging(settings.log_level, settings.log_to_file, settings.log_dir)
+    configure_logging(
+        settings.log_level,
+        settings.log_to_file,
+        settings.log_dir,
+        retain_full_days=settings.log_retain_full_days,
+        retain_compressed_days=settings.log_retain_compressed_days,
+        emergency_free_mb=settings.log_emergency_free_mb,
+    )
     conn = connect(settings.database_url)
     run_migrations(conn)
     storage = Storage(conn)
@@ -961,13 +1015,25 @@ def main() -> None:
         LOG.info("Telegram notifications enabled")
 
     while True:
+        cycle_started_monotonic = time.monotonic()
         try:
             if settings.transit_validation_enabled:
                 send_validation_notifications(storage, notifier)
             run_cycle(settings, client, storage, histories, notifier, convergence_tracker)
         except Exception as exc:
             LOG.exception("Cycle failed error=%s", exc)
-        time.sleep(settings.poll_interval_seconds)
+        delay = remaining_cycle_delay(
+            cycle_started_monotonic,
+            settings.poll_interval_seconds,
+            time.monotonic(),
+        )
+        if delay > 0:
+            time.sleep(delay)
+        else:
+            LOG.warning(
+                "Cycle exceeded polling interval interval_seconds=%s action=next_cycle_immediately",
+                settings.poll_interval_seconds,
+            )
 
 
 if __name__ == "__main__":

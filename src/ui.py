@@ -140,6 +140,7 @@ INDEX_HTML = """<!doctype html>
     .pill { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); font-size:10px; font-weight:800; background:var(--surface-2); }
     .pill:before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
     .pill.good{color:var(--good)} .pill.warn{color:var(--warn)} .pill.bad{color:var(--bad)}
+    .outcome { font-size:12px; padding:7px 10px; letter-spacing:.03em; }
     .muted{color:var(--muted)} .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:.94em}
     .scorebar { width:76px; height:6px; background:var(--surface-3); border-radius:999px; overflow:hidden; display:inline-block; vertical-align:middle; }
     .scorebar span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--accent),var(--accent-2)); box-shadow:0 0 8px rgba(var(--accent-rgb),.45); }
@@ -157,6 +158,8 @@ INDEX_HTML = """<!doctype html>
     .decision p { margin:0; color:var(--muted); line-height:1.55; }
     .event-name { font-weight:780; }
     .reason { color:var(--muted); white-space:normal; min-width:190px; }
+    .linkish { padding:0; min-height:0; border:0; background:transparent; color:inherit; font:inherit; font-weight:750; cursor:pointer; }
+    .linkish:hover { color:var(--accent); text-decoration:underline; transform:none; box-shadow:none; }
     .threshold { display:inline-block; margin-left:5px; color:var(--faint); font-size:10px; }
     dialog { width:min(1480px,calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:0; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:18px; box-shadow:0 28px 90px rgba(0,0,0,.55); overflow:auto; }
     dialog::backdrop { background:rgba(2,6,15,.76); backdrop-filter:blur(7px); }
@@ -170,24 +173,40 @@ INDEX_HTML = """<!doctype html>
     .legend-line { display:inline-block; width:22px; height:3px; margin-right:5px; vertical-align:middle; border-radius:2px; }
     .notice { padding:11px 13px; margin-bottom:12px; color:var(--warn); border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line)); border-radius:11px; background:color-mix(in srgb,var(--warn) 8%,transparent); }
     .score-timeline { width:100%; height:180px; display:block; }
-    .transit-readout { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
-    .readout-card { padding:12px; border:1px solid var(--line); border-radius:11px; background:var(--surface-2); }
-    .readout-card .readout-label { color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
-    .readout-card .readout-value { margin-top:5px; font-size:15px; font-weight:800; }
-    .readout-card .readout-description { margin-top:4px; color:var(--muted); font-size:11px; line-height:1.45; }
-    .body-direction-icon { display:flex; flex-direction:column; align-items:center; filter:drop-shadow(0 3px 8px rgba(0,0,0,.6)); }
-    .body-direction-icon .glyph { display:grid; place-items:center; width:42px; height:42px; border:2px solid white; border-radius:50%; background:#f59e0b; color:#fff7d6; font-size:27px; }
-    .body-direction-icon.moon .glyph { color:#172033; background:#dbeafe; }
+.transit-readout { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+.readout-card { padding:12px; border:1px solid var(--line); border-radius:11px; background:var(--surface-2); }
+.readout-card .readout-label { color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.readout-card .readout-value { margin-top:5px; font-size:15px; font-weight:800; }
+.readout-card .readout-description { margin-top:4px; color:var(--muted); font-size:11px; line-height:1.45; }
+.life-cycle { padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--surface-2); }
+.life-cycle-rail { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+.life-step { position:relative; padding:11px 11px 10px; border:1px solid var(--line); border-radius:12px; background:var(--surface-solid); min-height:92px; }
+.life-step.reached { background:color-mix(in srgb,var(--accent) 8%,var(--surface-solid)); }
+.life-step.current { border-color:rgba(var(--accent-rgb),.55); box-shadow:0 0 0 3px rgba(var(--accent-rgb),.08); }
+.life-step .step-index { color:var(--faint); font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.life-step .step-label { margin-top:6px; font-size:13px; font-weight:820; line-height:1.15; }
+.life-step .step-detail { margin-top:6px; color:var(--muted); font-size:10px; line-height:1.45; }
+.life-cycle-note { margin-top:10px; color:var(--muted); font-size:11px; line-height:1.5; }
+.body-direction-icon { display:flex; flex-direction:column; align-items:center; filter:drop-shadow(0 3px 8px rgba(0,0,0,.6)); }
+.body-direction-icon .glyph { display:grid; place-items:center; width:42px; height:42px; border:2px solid white; border-radius:50%; background:#f59e0b; color:#fff7d6; font-size:27px; }
+.body-direction-icon.moon .glyph { color:#172033; background:#dbeafe; }
     .body-direction-icon .caption { margin-top:3px; padding:3px 6px; color:white; background:rgba(7,11,20,.9); border-radius:6px; font-size:10px; font-weight:800; white-space:nowrap; }
     .map-key { padding:8px 10px; color:#e5edf9; background:rgba(7,11,20,.88); border:1px solid rgba(255,255,255,.2); border-radius:9px; font-size:10px; line-height:1.55; box-shadow:0 5px 18px rgba(0,0,0,.3); }
-    @media(max-width:1280px){.metrics{grid-template-columns:repeat(3,1fr)} input{width:180px}}
+    @media(max-width:1280px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))} input{width:180px}}
     @media(max-width:900px){
-      .app{grid-template-columns:1fr} aside{position:relative;height:auto;padding:12px} .brand{padding-bottom:12px;margin-bottom:8px}
+      .app{grid-template-columns:1fr} aside{position:sticky;top:0;height:auto;padding:10px 12px;z-index:30;border-right:0;border-bottom:1px solid var(--line)} .brand{padding-bottom:10px;margin-bottom:7px}
       nav{display:flex;overflow:auto;padding-bottom:3px;gap:3px}.nav-label,.nav-section-title,.nav-details>summary,.sidebar-foot{display:none}.nav-section,.nav-details .nav-section{display:flex;margin:0}.nav-details{display:contents}.tab-btn{min-width:max-content;padding:9px 12px}.tab-btn:hover{transform:none}.tab-btn.active{box-shadow:inset 0 -2px var(--accent)}
       header{position:relative;min-height:auto;padding:14px;align-items:stretch;flex-direction:column}.header-left,.header-right{width:100%}.header-right{justify-content:flex-start}input{width:min(100%,260px)}
-      .content{padding:14px}.grid-2,.grid-3,.map-layout,.event-visuals{grid-template-columns:1fr}.map-frame{height:520px;min-height:420px}.detail{max-height:none}.event-map{height:420px}
+      .content{padding:14px}.grid-2,.grid-3,.map-layout,.event-visuals{grid-template-columns:minmax(0,1fr)}.map-frame{height:58dvh;min-height:380px}.detail{max-height:none}.event-map{height:390px}.life-cycle-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.panel-head{align-items:flex-start;flex-wrap:wrap}.chart-legend{flex-wrap:wrap}
     }
-    @media(max-width:560px){.metrics{grid-template-columns:repeat(2,1fr)}.metric .value{font-size:23px}.update-badge{display:none}input{width:100%}.header-right>*{flex:1 1 auto}.icon-btn{flex:0 0 38px}.content{padding:10px}.panel{padding:11px;border-radius:13px}}
+    @media(max-width:600px){
+      body{font-size:12px}.brand{display:none}aside{padding:7px 8px}nav{padding-bottom:1px}.tab-btn{padding:8px 10px}
+      header{padding:10px;gap:10px}.title{font-size:18px}.update-badge{display:none}.header-right{gap:6px}#search{width:100%;flex:1 1 100%}#range,#refresh{flex:1 1 calc(50% - 4px);width:auto}.header-right>.primary{flex:1 1 auto}.icon-btn{flex:0 0 38px}
+      .content{padding:9px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.metric{padding:13px 12px 12px}.metric .value{font-size:22px}.panel{padding:10px;border-radius:13px}.decision{padding:13px;gap:10px}.decision-icon{flex-basis:34px;width:34px;height:34px}.decision h2{font-size:14px}
+      .scroll{overflow:visible;max-height:none!important;border:0;background:transparent}table,tbody,tr,td{display:block;width:100%}thead{display:none}tbody{display:grid;gap:9px}tbody tr{display:block;padding:5px 9px;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--surface-solid) 60%,transparent)}td{display:grid;grid-template-columns:minmax(92px,34%) minmax(0,1fr);gap:9px;padding:8px 2px;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;line-height:1.45}td:last-child{border-bottom:0}td:before{content:attr(data-label);color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}td[data-label=""]:before{display:none}td[data-label=""]{display:block;text-align:right}.reason{min-width:0}.scorebar{width:64px}
+      dialog{inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;border:0;border-radius:0}.dialog-head{padding:11px 12px}.dialog-head h2{font-size:15px}.dialog-body{padding:9px}.event-map{height:330px}.sky-chart{height:300px}.map-frame{height:52dvh;min-height:340px}.life-cycle{padding:10px}.life-cycle-rail{grid-template-columns:1fr;gap:7px}.life-step{min-height:0}.transit-readout{grid-template-columns:1fr}.kv{grid-template-columns:105px minmax(0,1fr)}
+    }
+    @media(max-width:380px){.metrics{grid-template-columns:1fr}.kv{grid-template-columns:1fr}.kv div:nth-child(even){margin-bottom:5px}td{grid-template-columns:82px minmax(0,1fr)}}
   </style>
 </head>
 <body>
@@ -237,7 +256,7 @@ const tabGroups = [
   {label:'Diagnostyka', collapsible:true, items:[['aircraft','Samoloty ADS-B','✈'],['runs','Cykle','↻'],['feeder','Feeder','⌁'],['logs','Logi','▤'],['config','Konfiguracja','⚙'],['export','Eksport','⇩']]}
 ];
 const tabs = tabGroups.flatMap(group => group.items);
-let active = 'overview', timer = null, lastData = {}, refreshInFlight = false, pendingRefresh = false, eventFilter = 'all';
+let active = 'overview', timer = null, lastData = {}, refreshInFlight = false, pendingRefresh = false, eventFilter = 'all', funnelFocus = null;
 let operationalRange = 'today';
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = v => v ? new Date(v).toLocaleString('pl-PL') : '-';
@@ -281,7 +300,7 @@ function showTab(id) {
   viewTitle.textContent = tabs.find(t => t[0] === id)?.[1] || 'Panel'; renderNav(); refreshAll();
 }
 function table(headers, rows, opts={}) {
-  const body = rows.length ? rows.map(r => `<tr>${headers.map(h => `<td class="${h.cls||''}">${h.fn(r)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}" class="muted">Brak danych</td></tr>`;
+  const body = rows.length ? rows.map(r => `<tr>${headers.map(h => `<td data-label="${esc(h.name)}" class="${h.cls||''}">${h.fn(r)}</td>`).join('')}</tr>`).join('') : `<tr><td data-label="" colspan="${headers.length}" class="muted">Brak danych</td></tr>`;
   return `<div class="scroll" style="max-height:${opts.h||520}px"><table><thead><tr>${headers.map(h => `<th>${esc(h.name)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function metric(label, value, kind='') { return `<div class="metric ${kind}"><div class="value">${esc(value)}</div><div class="label">${esc(label)}</div></div>`; }
@@ -293,6 +312,8 @@ function bars(rows, key) {
 const bodyLabel = value => String(value||'').toLowerCase()==='sun' ? 'Słońce' : String(value||'').toLowerCase()==='moon' ? 'Księżyc' : (value||'-');
 const statusLabel = value => ({ALERT_SENT:'Alert wysłany',ALERT_READY:'Gotowy do alertu',OBSERVATION_CANDIDATE:'Obserwowany',REJECTED:'Odrzucony',CANDIDATE_STORED:'Zapisany'}[value]||value||'-');
 const reasonLabel = value => ({LOW_SCORE:'Za niski score',TOO_EARLY_FOR_ALERT:'Za wcześnie lub brak potwierdzenia w kolejnym cyklu',TOO_LATE:'Za mało czasu na reakcję',AIRPORT_TRAFFIC:'Ruch lotniskowy',AIRPORT_STRICT:'Ruch lotniskowy',LOW_ALTITUDE:'Za mała wysokość',UNSTABLE_FLIGHT:'Niestabilny tor lotu','-':'Brak dodatkowej przyczyny'}[value]||String(value||'-').replaceAll('_',' ').toLowerCase());
+const alertPhaseLabel = value => ({EARLY:'Wczesny',CONFIRMED:'Potwierdzony',BETTER:'Lepszy punkt',CONSOLE:'Alert'}[String(value||'').toUpperCase()]||value||'Alert');
+const durationLabel = value => {if(value===null||value===undefined||Number.isNaN(Number(value)))return '—';const raw=Math.round(Number(value)),sign=raw<0?'-':'',seconds=Math.abs(raw),minutes=Math.floor(seconds/60),rest=seconds%60;return minutes?`${sign}${minutes} min ${rest?rest+' s':''}`.trim():`${sign}${rest} s`;};
 function relativeTime(value) { const seconds=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/1000)); return seconds<60?`${seconds} s temu`:seconds<3600?`${Math.round(seconds/60)} min temu`:`${Math.round(seconds/3600)} godz. temu`; }
 async function refreshAll() {
   if (refreshInFlight) { pendingRefresh = true; return; }
@@ -403,7 +424,7 @@ function renderEventDetail(data){
   eventDialogTitle.textContent=`${c.callsign||c.icao} · ${bodyLabel(c.body)} · ${fmt(c.transit_time_utc)}`;
   const snapshotNotice=c.snapshot_id?'':`<div class="notice">To zdarzenie powstało przed uruchomieniem zapisu migawek. Tor przewidywany nie jest dostępny; pokazano zachowane pomiary ADS-B.</div>`;
   const actualLabel=actual?actual.result:(new Date(c.transit_time_utc)>new Date()?'OCZEKUJE':'BRAK DANYCH');
-  eventDialogBody.innerHTML=`${snapshotNotice}<div class="metrics">
+  eventDialogBody.innerHTML=`${snapshotNotice}${eventLifecycle(data)}<div class="metrics" style="margin-top:14px">
     ${metric('Score',num(c.score,2),Number(c.score)>=.7?'warn':'')}${metric('Offset prognozy',num(c.offset_body_diameters,3))}
     ${metric('Wynik ADS-B',actualLabel,actual?.result==='HIT'?'good':actual?.result==='MISS'?'bad':'warn')}
     ${metric('Offset rzeczywisty',actual?num(actual.offset_body_diameters,3):'—')}
@@ -416,6 +437,35 @@ function renderEventDetail(data){
     <div class="panel"><h2>Składniki najlepszej oceny</h2><div class="kv"><div>Stabilność</div><div>${num(c.stability_score,2)}</div><div>Wyrównanie</div><div>${num(c.alignment_score,2)}</div><div>Wysokość</div><div>${num(c.altitude_score,2)}</div><div>Elewacja obiektu</div><div>${num(c.body_elevation_score,2)}</div><div>Zasięg samolotu</div><div>${num(c.aircraft_range_score,2)}</div><div>Czas na reakcję</div><div>${num(c.lead_time_score,2)}</div><div>Pozycja obserwatora</div><div>${num(c.observer_distance_score,2)}</div><div>Decyzja</div><div>${statusLabel(c.status)} — ${reasonLabel(c.rejection_reason)}</div></div></div>
   </div>`;
   setTimeout(()=>renderEventGroundMap(data),0);
+}
+function eventLifecycle(data){
+  const c=data.candidate||{}, actual=data.actual_result, series=data.event_series||[];
+  const requiredEarly=Number(data.required_early_cycles||2);
+  const isRejected=c.status==='REJECTED';
+  const observed=series.length>0;
+  const confirmed=!isRejected && (Number(series.length)>=requiredEarly || c.status==='ALERT_READY' || c.status==='ALERT_SENT');
+  const alerted=!isRejected && c.status==='ALERT_SENT';
+  const resolved=!!actual;
+  const stopIndex=resolved ? 4 : alerted ? 3 : confirmed ? 2 : observed ? 1 : 0;
+  const stopLabel=resolved
+    ? `Zatrzymane na etapie wyniku: ${actual.result}.`
+    : isRejected
+      ? `Zatrzymane wcześniej: ${reasonLabel(c.rejection_reason)}.`
+      : alerted
+        ? 'Alert został wysłany.'
+        : confirmed
+          ? `Potwierdzone po ${num(series.length)} cyklach.`
+          : observed
+            ? `Obserwowane, ale nie przeszło do potwierdzenia (${num(series.length)} cykli, wymagane ${num(requiredEarly)}).`
+            : 'Zatrzymane na etapie wykrycia.';
+  const steps = [
+    {index:'01', label:'Wykryty', detail:'Pojawił się pierwszy kandydat dla lotu i obiektu.'},
+    {index:'02', label:'Obserwowany', detail:`Seria miała ${num(series.length)} cykli.`},
+    {index:'03', label:'Potwierdzony', detail:`Próg stabilności: ${num(requiredEarly)} cykli.`},
+    {index:'04', label:'Alert', detail:'Zdarzenie spełniło warunki powiadomienia.'},
+    {index:'05', label:'Wynik', detail:'Po tranzycie porównano zapis ADS-B z prognozą.'},
+  ];
+  return `<div class="life-cycle"><div class="life-cycle-rail">${steps.map((step, index)=>`<div class="life-step ${index<=stopIndex?'reached':''} ${index===stopIndex?'current':''}"><div class="step-index">${step.index}</div><div class="step-label">${step.label}</div><div class="step-detail">${step.detail}</div></div>`).join('')}</div><div class="life-cycle-note">${stopLabel}</div></div>`;
 }
 function closestTrackPoint(rows){
   if(!rows.length)return null;let best=null;
@@ -478,12 +528,25 @@ const geometryHeaders = () => [{name:'Czas',fn:r=>fmt(r.log_time)},{name:'Event'
 const filterHeaders = () => [{name:'Status',fn:r=>esc(r.status||r.event||'-')},{name:'Powód',fn:r=>esc(r.rejection_reason||r.reason||'-')},{name:'Liczba',fn:r=>num(r.count)}];
 const validationClass = r => r === 'HIT' ? 'good' : r === 'MISS' ? 'bad' : 'warn';
 const direction = (v, positive, negative) => v == null ? '-' : `${Number(v)>=0 ? positive : negative} ${num(Math.abs(Number(v)),3)}`;
+const validationLabel = r => ({HIT:'TRAFIONY',MISS:'CHYBIONY',UNCERTAIN:'NIEPEWNY',NO_DATA:'BRAK DANYCH'}[r]||r||'-');
+function validationExplanation(row){
+  if(row.result==='HIT')return 'Tor przeciął obszar tarczy.';
+  if(row.result==='NO_DATA')return 'Za mało pomiarów ADS-B do oceny.';
+  if(row.result==='UNCERTAIN')return 'Wynik leży w paśmie niepewności.';
+  if(row.result!=='MISS')return '-';
+  const vertical=Number(row.vertical_offset_body_diameters),horizontal=Number(row.horizontal_offset_body_diameters);
+  if(!Number.isFinite(vertical)||!Number.isFinite(horizontal))return 'Najbliższy punkt pozostał poza tarczą.';
+  const av=Math.abs(vertical),ah=Math.abs(horizontal),verticalText=vertical>=0?'powyżej':'poniżej',horizontalText=horizontal>=0?'po prawej':'po lewej';
+  if(Math.min(av,ah)>=Math.max(av,ah)*0.7)return `Minięcie ukośne: ${verticalText} i ${horizontalText}.`;
+  return av>ah?`Minięcie głównie w pionie: ${verticalText} tarczy.`:`Minięcie głównie w poziomie: ${horizontalText} tarczy.`;
+}
 const validationHeaders = () => [
-  {name:'Walidacja',fn:r=>fmt(r.validated_at)}, {name:'Samolot',fn:r=>`${esc(r.callsign||'-')} <span class="muted mono">${esc(r.icao)}</span>`},
-  {name:'Obiekt',fn:r=>esc(r.body==='sun'?'Słońce':r.body==='moon'?'Księżyc':r.body)}, {name:'Wynik',fn:r=>`<span class="pill ${validationClass(r.result)}">${esc(r.result)}</span>`},
-  {name:'Δ czasu',fn:r=>r.time_error_seconds==null?'-':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`},
-  {name:'Offset prog.',fn:r=>num(r.predicted_offset_body_diameters,3)}, {name:'Offset ADS-B',fn:r=>num(r.actual_offset_body_diameters,3)},
-  {name:'Pion',fn:r=>direction(r.vertical_offset_body_diameters,'↑ góra','↓ dół')}, {name:'Poziom',fn:r=>direction(r.horizontal_offset_body_diameters,'→ prawo','← lewo')}
+  {name:'Wynik',fn:r=>`<span class="pill outcome ${validationClass(r.result)}">${esc(validationLabel(r.result))}</span><div class="reason">${esc(validationExplanation(r))}</div>`},
+  {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.predicted_transit_time_utc)}</span>${r.alert_type?`<br><span class="pill ${r.alert_type==='EARLY'?'warn':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span>`:''}`},
+  {name:'Prognoza → ADS-B',fn:r=>{const delta=r.actual_offset_body_diameters==null?null:Number(r.actual_offset_body_diameters)-Number(r.predicted_offset_body_diameters);return `<b>${num(r.predicted_offset_body_diameters,3)} → ${num(r.actual_offset_body_diameters,3)}</b><br><span class="muted">zmiana ${delta==null?'—':`${delta>=0?'+':''}${num(delta,3)} średnicy`}</span>`;}},
+  {name:'Położenie względem tarczy',fn:r=>`${direction(r.vertical_offset_body_diameters,'↑ powyżej','↓ poniżej')}<br>${direction(r.horizontal_offset_body_diameters,'→ po prawej','← po lewej')}`},
+  {name:'Czas',fn:r=>`${fmt(r.actual_closest_time_utc)}<br><span class="muted">Δ ${r.time_error_seconds==null?'—':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`}</span>`},
+  {name:'',fn:r=>r.candidate_id?`<button onclick="openEvent(${Number(r.candidate_id)})">Pełna analiza</button>`:'-'}
 ];
 function eventStage(row){
   if(row.validation_result)return {label:`Wynik ${row.validation_result}`,kind:row.validation_result==='HIT'?'good':row.validation_result==='MISS'?'bad':'warn'};
@@ -493,8 +556,33 @@ function eventStage(row){
   return {label:'Odrzucony',kind:'bad'};
 }
 function eventFilterMatch(row){if(eventFilter==='near')return Number(row.score)>=Number(lastData.events.alert_min_score);if(eventFilter==='alerted')return Number(row.alert_count)>0;if(eventFilter==='hit')return row.validation_result==='HIT';if(eventFilter==='miss')return row.validation_result==='MISS';return true;}
+function funnelMatch(row){
+  if(!funnelFocus)return true;
+  if(funnelFocus.kind==='status')return String(row.status||'')===String(funnelFocus.value||'');
+  if(funnelFocus.kind==='reason')return String(row.rejection_reason||'-')===String(funnelFocus.value||'-');
+  if(funnelFocus.kind==='log_event')return String(row.event||'')===String(funnelFocus.value||'');
+  if(funnelFocus.kind==='log_reason')return String(row.reason||'-')===String(funnelFocus.value||'-');
+  return true;
+}
+function funnelLabel(){
+  if(!funnelFocus)return '';
+  if(funnelFocus.kind==='status')return `status: ${statusLabel(funnelFocus.value)}`;
+  if(funnelFocus.kind==='reason')return `powód: ${reasonLabel(funnelFocus.value)}`;
+  if(funnelFocus.kind==='log_event')return `log: ${funnelFocus.value}`;
+  if(funnelFocus.kind==='log_reason')return `log powód: ${reasonLabel(funnelFocus.value)}`;
+  return '';
+}
+function setFunnelFocus(kind, value){
+  funnelFocus = {kind, value};
+  eventFilter = 'all';
+  showTab('candidates');
+}
+function clearFunnelFocus(){
+  funnelFocus = null;
+  renderCandidates();
+}
 function renderCandidates(){
-  const data=lastData.events||{items:[],summary:{}},summary=data.summary||{},items=(data.items||[]).filter(eventFilterMatch);
+  const data=lastData.events||{items:[],summary:{}},summary=data.summary||{},items=(data.items||[]).filter(eventFilterMatch).filter(funnelMatch);
   const headers=[
     {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao)}</span> <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span>`},
     {name:'Wykryte',fn:r=>`${fmt(r.first_seen_at)}<br><span class="muted">ostatni cykl: ${fmt(r.last_seen_at)}</span>`},
@@ -504,17 +592,41 @@ function renderCandidates(){
     {name:'Dane',fn:r=>r.has_snapshot?'<span class="pill good">Pełna migawka</span>':'<span class="muted">bez trajektorii</span>'},
     {name:'',fn:r=>`<button onclick="openEvent(${Number(r.candidate_id)})">Pełna analiza</button>`}
   ];
-  candidates.innerHTML=`<div class="metrics">${metric('Zdarzenia',num(summary.events))}${metric('Osiągnęły próg',num(summary.near_alert),summary.near_alert?'warn':'')}${metric('Z alertem',num(summary.alerted),summary.alerted?'good':'')}${metric('HIT',num(summary.hit),summary.hit?'good':'')}${metric('MISS',num(summary.miss),summary.miss?'bad':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Zdarzenia zamiast pojedynczych cykli</h2><span class="muted">Jeden lot, obiekt i okno tranzytu tworzą jeden rekord.</span></div><div><select onchange="eventFilter=this.value;renderCandidates()"><option value="all" ${eventFilter==='all'?'selected':''}>Wszystkie</option><option value="near" ${eventFilter==='near'?'selected':''}>Osiągnęły próg</option><option value="alerted" ${eventFilter==='alerted'?'selected':''}>Z alertem</option><option value="hit" ${eventFilter==='hit'?'selected':''}>HIT</option><option value="miss" ${eventFilter==='miss'?'selected':''}>MISS</option></select> <a href="/api/export?type=candidates&${params()}">surowe CSV</a></div></div>${table(headers,items,{h:720})}</div>`;
+  candidates.innerHTML=`<div class="metrics">${metric('Zdarzenia',num(summary.events))}${metric('Osiągnęły próg',num(summary.near_alert),summary.near_alert?'warn':'')}${metric('Z alertem',num(summary.alerted),summary.alerted?'good':'')}${metric('HIT',num(summary.hit),summary.hit?'good':'')}${metric('MISS',num(summary.miss),summary.miss?'bad':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Zdarzenia zamiast pojedynczych cykli</h2><span class="muted">Jeden lot, obiekt i okno tranzytu tworzą jeden rekord.</span>${funnelFocus?`<div style="margin-top:8px"><span class="pill good">Filtr aktywny: ${esc(funnelLabel())}</span> <button onclick="clearFunnelFocus()">Wyczyść filtr</button></div>`:''}</div><div><select onchange="eventFilter=this.value;renderCandidates()"><option value="all" ${eventFilter==='all'?'selected':''}>Wszystkie</option><option value="near" ${eventFilter==='near'?'selected':''}>Osiągnęły próg</option><option value="alerted" ${eventFilter==='alerted'?'selected':''}>Z alertem</option><option value="hit" ${eventFilter==='hit'?'selected':''}>HIT</option><option value="miss" ${eventFilter==='miss'?'selected':''}>MISS</option></select> <a href="/api/export?type=candidates&${params()}">surowe CSV</a></div></div>${table(headers,items,{h:720})}</div>`;
 }
 function renderRuns(){ runs.innerHTML = `<div class="grid-2"><div class="panel"><h2>Trend pobrań</h2>${bars(lastData.runs.items.slice().reverse(), 'aircraft_count_total')}</div><div class="panel"><h2>Trend analiz</h2>${bars(lastData.runs.items.slice().reverse(), 'aircraft_count_analyzed')}</div></div><div class="panel" style="margin-top:12px"><h2>Cykle predykcji</h2>${table(runHeaders(), lastData.runs.items, {h:720})}</div>`; }
 function renderAircraft(){ aircraft.innerHTML = `<div class="panel"><div class="panel-head"><h2>Samoloty z ostatniego zakresu</h2><a href="/api/export?type=aircraft&${params()}">CSV</a></div>${table(aircraftHeaders(), lastData.aircraft.items, {h:760})}</div>`; }
 function renderGeometry(){ geometry.innerHTML = `<div class="metrics">${metric('Zdarzenia geometrii', num(lastData.geometry.items.length))}${metric('Selected', num(lastData.geometry.summary.GEOMETRY_SELECTED||0), 'good')}${metric('No alignment', num(lastData.geometry.summary.GEOMETRY_NO_ALIGNMENT||0), 'warn')}${metric('Skipped', num(lastData.geometry.summary.GEOMETRY_SKIPPED||0), 'bad')}</div><div class="panel" style="margin-top:12px"><div class="panel-head"><h2>Geometria z logów</h2><a href="/api/export?type=geometry&${params()}">CSV</a></div>${table(geometryHeaders(), lastData.geometry.items, {h:720})}</div>`; }
-function renderFilters(){ filters.innerHTML = `<div class="grid-2"><div class="panel"><h2>Statusy kandydatów</h2>${table(filterHeaders(), lastData.filters.rejections, {h:520})}</div><div class="panel"><h2>Filtry z logów</h2>${table(filterHeaders(), lastData.filters.log_rejections, {h:520})}</div></div>`; }
-function renderAlerts(){ alerts.innerHTML = `<div class="panel"><h2>Alerty</h2>${table([{name:'Czas',fn:r=>fmt(r.printed_at)},{name:'Samolot',fn:r=>`${esc(r.callsign||'-')} <span class="muted mono">${esc(r.icao||'-')}</span>`},{name:'Ciało',fn:r=>esc(r.body||'-')},{name:'Score',fn:r=>r.score==null?'-':score(r.score)},{name:'Wiadomość',fn:r=>esc(r.message||'-'),cls:'wrap'}], lastData.alerts.items, {h:760})}</div>`; }
+function renderFilters(){
+  const rejectionHeaders = [
+    {name:'Status',fn:r=>`<button class="linkish" onclick="setFunnelFocus('status', ${JSON.stringify(r.status||'')})">${esc(r.status||'-')}</button>`},
+    {name:'Powód',fn:r=>`<button class="linkish" onclick="setFunnelFocus('reason', ${JSON.stringify(r.rejection_reason||'-')})">${esc(r.rejection_reason||'-')}</button>`},
+    {name:'Liczba',fn:r=>num(r.count)}
+  ];
+  const logHeaders = [
+    {name:'Event',fn:r=>`<button class="linkish" onclick="search.value=${JSON.stringify(r.event||'')};eventFilter='all';funnelFocus=null;showTab('logs');refreshAll();">${esc(r.event||'-')}</button>`},
+    {name:'Powód',fn:r=>`<button class="linkish" onclick="search.value=${JSON.stringify(r.reason||'')};eventFilter='all';funnelFocus=null;showTab('logs');refreshAll();">${esc(r.reason||'-')}</button>`},
+    {name:'Liczba',fn:r=>num(r.count)}
+  ];
+  filters.innerHTML = `<div class="grid-2"><div class="panel"><h2>Statusy kandydatów</h2><div class="muted" style="margin:-6px 0 10px;line-height:1.5">Kliknij status lub powód, żeby zawęzić listę zdarzeń.</div>${table(rejectionHeaders, lastData.filters.rejections, {h:520})}</div><div class="panel"><h2>Filtry z logów</h2><div class="muted" style="margin:-6px 0 10px;line-height:1.5">Kliknij log, żeby przejść do odpowiadających mu zdarzeń.</div>${table(logHeaders, lastData.filters.log_rejections, {h:520})}</div></div>`;
+}
+function renderAlerts(){
+  const data=lastData.alerts||{summary:{},items:[]},s=data.summary||{};
+  const headers=[
+    {name:'Powiadomienie',fn:r=>`<span class="pill ${r.alert_type==='EARLY'?'warn':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)}</div>`},
+    {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao||'-')}</span><br><span class="muted">${bodyLabel(r.body)} · tranzyt ${fmt(r.transit_time_utc)}</span>`},
+    {name:'Czas na reakcję',fn:r=>{const margin=Number(r.preparation_margin_seconds),kind=margin>=60?'good':margin>=0?'warn':'bad';return `<b>${durationLabel(r.lead_seconds)}</b> do tranzytu<br><span class="muted">dojazd ok. ${durationLabel(r.travel_seconds)}</span><br><span class="pill ${kind}">po dojeździe ${durationLabel(r.preparation_margin_seconds)}</span>`;}},
+    {name:'Prognoza',fn:r=>`${score(r.score)}<br><span class="muted">offset ${num(r.predicted_offset_body_diameters,3)} · ${num(r.observer_distance_km,2)} km</span>`},
+    {name:'Wynik',fn:r=>r.validation_result?`<span class="pill ${validationClass(r.validation_result)}">${esc(r.validation_result)}</span><div class="reason">Offset ADS-B ${num(r.actual_offset_body_diameters,3)}<br>Δ czasu ${r.time_error_seconds==null?'—':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`}</div>`:'<span class="pill warn">Oczekuje</span><div class="reason">Walidacja po tranzycie</div>'},
+    {name:'',fn:r=>`${r.google_maps_url?`<a href="${esc(r.google_maps_url)}" target="_blank">Mapa</a> · `:''}<button onclick="openEvent(${Number(r.candidate_id)})">Analiza</button>`}
+  ];
+  alerts.innerHTML=`<div class="metrics">${metric('Alerty',num(s.alerts),s.alerts?'good':'')}${metric('Zdarzenia',num(s.events))}${metric('Wczesne',num(s.early),s.early?'warn':'')}${metric('Potwierdzone',num(Number(s.confirmed||0)+Number(s.better||0)),s.confirmed||s.better?'good':'')}${metric('HIT',num(s.hit),s.hit?'good':'')}${metric('MISS',num(s.miss),s.miss?'bad':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Historia powiadomień</h2><span class="muted">Etap, dostępny czas i wynik każdego alertu.</span></div><span class="muted">Średnie wyprzedzenie: ${durationLabel(s.avg_lead_seconds)}</span></div>${table(headers,data.items||[],{h:760})}</div>`;
+}
 function renderValidations(){
   const d=lastData.validations||{summary:{},items:[]},v=d.summary||{};
   const evaluated=Number(v.hit||0)+Number(v.miss||0), hitRate=evaluated?`${num(Number(v.hit||0)/evaluated*100,1)}%`:'—';
-  validations.innerHTML=`<div class="metrics">${metric('HIT',num(v.hit),'good')}${metric('MISS',num(v.miss),v.miss?'bad':'')}${metric('Skuteczność',hitRate,evaluated?'good':'')}${metric('Niepewne',num(v.uncertain),v.uncertain?'warn':'')}${metric('Brak danych',num(v.no_data),v.no_data?'warn':'')}${metric('Śr. błąd czasu',v.avg_abs_time_error_seconds==null?'—':num(v.avg_abs_time_error_seconds,1)+' s')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><h2>Wyniki rzeczywiste po tranzycie</h2><span class="muted">Interpolacja zapisanej ścieżki ADS-B</span></div>${table(validationHeaders(),d.items||[],{h:760})}</div>`;
+  const decision=evaluated?`Oceniono ${num(evaluated)} ${evaluated===1?'alert':'alertów'}: ${num(v.hit)} HIT i ${num(v.miss)} MISS. Skuteczność wynosi ${hitRate}.`:'Brak zakończonych zdarzeń z wynikiem HIT/MISS w wybranym dniu.';
+  validations.innerHTML=`<div class="decision"><div class="decision-icon">${Number(v.miss||0)>0?'!':evaluated?'✓':'i'}</div><div><h2>${evaluated?'Wynik alertów po przelocie':'Brak wyników do oceny'}</h2><p>${decision} Offset ADS-B pokazuje najmniejszą odległość toru od środka tarczy.</p></div></div><div class="metrics">${metric('HIT',num(v.hit),'good')}${metric('MISS',num(v.miss),v.miss?'bad':'')}${metric('Skuteczność',hitRate,evaluated?'good':'')}${metric('Niepewne',num(v.uncertain),v.uncertain?'warn':'')}${metric('Brak danych',num(v.no_data),v.no_data?'warn':'')}${metric('Śr. błąd czasu',v.avg_abs_time_error_seconds==null?'—':num(v.avg_abs_time_error_seconds,1)+' s')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Wyniki rzeczywiste po tranzycie</h2><span class="muted">Prognoza zestawiona z zapisaną ścieżką ADS-B.</span></div><span class="muted">Przecięcie tarczy: offset około 0,5 średnicy lub mniej.</span></div>${table(validationHeaders(),d.items||[],{h:760})}</div>`;
 }
 function renderFeederBox(){ const s=lastData.feeder.stats||{}; return `<div class="kv"><div>Requesty</div><div>${num(s.request_count)}</div><div>Upstream fetch</div><div>${num(s.upstream_fetch_count)}</div><div>Błędy upstream</div><div>${num(s.upstream_error_count)}</div><div>Cache hit</div><div>${num(s.cache_hit_count)}</div><div>Stale hit</div><div>${num(s.stale_hit_count)}</div><div>429 w logach</div><div>${num(lastData.feeder.log_rate_limits)}</div></div>`; }
 function renderFeeder(){ feeder.innerHTML = `<div class="grid-2"><div class="panel"><h2>Status feedera</h2>${renderFeederBox()}</div><div class="panel"><h2>Błędy ADS-B z logów</h2>${table([{name:'Czas',fn:r=>fmt(r.log_time)},{name:'Typ',fn:r=>esc(r.level)},{name:'Opis',fn:r=>esc(r.message),cls:'wrap'}], lastData.feeder.errors, {h:520})}</div></div>`; }
@@ -607,7 +719,7 @@ def _handler_factory(database_url: str, log_dir: str):
                 elif parsed.path == "/api/filters":
                     self._send_json(_filters(database_url, log_dir, params))
                 elif parsed.path == "/api/alerts":
-                    self._send_json({"items": _alerts(database_url, params)})
+                    self._send_json(_alerts(database_url, params))
                 elif parsed.path == "/api/validations":
                     self._send_json(_validations(database_url, params))
                 elif parsed.path == "/api/feeder":
@@ -819,7 +931,9 @@ def _event_detail(database_url: str, candidate_id: int) -> dict:
     if not rows:
         raise ValueError(f"Candidate {candidate_id} not found")
     candidate = rows[0]
-    window = max(60, int(os.getenv("LOCKED_ALERT_WINDOW_SECONDS", _read_env_file().get("LOCKED_ALERT_WINDOW_SECONDS", "600"))))
+    env = _read_env_file()
+    window = max(60, int(os.getenv("LOCKED_ALERT_WINDOW_SECONDS", env.get("LOCKED_ALERT_WINDOW_SECONDS", "600"))))
+    required_early_cycles = int(os.getenv("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", env.get("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", "2")))
     event_slot = int(candidate["transit_time_utc"].timestamp()) // window
     series = _query(database_url, """
         WITH ranked AS (
@@ -891,6 +1005,7 @@ def _event_detail(database_url: str, candidate_id: int) -> dict:
         "actual_sky": actual_sky,
         "actual_result": actual_result,
         "observer_grid": observer_grid,
+        "required_early_cycles": required_early_cycles,
     }
 
 
@@ -1172,58 +1287,109 @@ def _events(database_url: str, params: dict, limit: int = 300) -> dict:
     }
 
 
-def _alerts(database_url: str, params: dict) -> list[dict]:
+def _alerts(database_url: str, params: dict) -> dict:
     start, end = _window(params)
     q = _search(params)
+    env = _read_env_file()
+    event_window = max(60, int(os.getenv("LOCKED_ALERT_WINDOW_SECONDS", env.get("LOCKED_ALERT_WINDOW_SECONDS", "600"))))
     where_q = "AND (lower(c.icao) LIKE %s OR lower(COALESCE(c.callsign,'')) LIKE %s)" if q else ""
-    args: list = [start, end]
+    args: list = [event_window, event_window, start, end]
     if q:
         args.extend([f"%{q}%", f"%{q}%"])
-    return _query(database_url, f"""
-        SELECT a.printed_at, a.message, c.icao, c.callsign, c.body, c.score
+    items = _query(database_url, f"""
+        SELECT a.id AS alert_id, a.alert_type, a.printed_at, a.message,
+               c.id AS candidate_id, c.icao, c.callsign, c.body, c.score,
+               c.transit_time_utc,
+               extract(epoch FROM c.transit_time_utc - a.printed_at) AS lead_seconds,
+               c.offset_body_diameters AS predicted_offset_body_diameters,
+               c.observer_distance_km, c.google_maps_url,
+               floor(extract(epoch FROM c.transit_time_utc) / %s)::bigint AS event_slot,
+               validation.result AS validation_result,
+               validation.actual_offset_body_diameters,
+               extract(epoch FROM validation.actual_closest_time_utc - validation.predicted_transit_time_utc) AS time_error_seconds,
+               validation.validated_at
         FROM alerts a
         LEFT JOIN transit_candidates c ON c.id = a.transit_candidate_id
+        LEFT JOIN transit_validations validation
+          ON validation.icao = lower(c.icao)
+         AND validation.body = lower(c.body)
+         AND validation.event_slot = floor(extract(epoch FROM c.transit_time_utc) / %s)
         WHERE a.printed_at >= %s AND a.printed_at <= %s {where_q}
         ORDER BY a.printed_at DESC
         LIMIT 200
     """, tuple(args))
+    travel_speed = float(os.getenv("TRAVEL_SPEED_KMH", env.get("TRAVEL_SPEED_KMH", "50")))
+    reach_safety = float(os.getenv("REACH_SAFETY", env.get("REACH_SAFETY", "0.8")))
+    effective_speed = max(0.1, travel_speed * reach_safety)
+    for item in items:
+        distance_km = float(item.get("observer_distance_km") or 0.0)
+        lead_seconds = float(item.get("lead_seconds") or 0.0)
+        travel_seconds = distance_km / effective_speed * 3600.0
+        item["travel_seconds"] = round(travel_seconds, 1)
+        item["preparation_margin_seconds"] = round(lead_seconds - travel_seconds, 1)
+
+    event_keys = {
+        (str(item.get("icao") or "").lower(), str(item.get("body") or "").lower(), item.get("event_slot"))
+        for item in items
+    }
+    validated_events = {
+        (str(item.get("icao") or "").lower(), str(item.get("body") or "").lower(), item.get("event_slot")): item.get("validation_result")
+        for item in items
+        if item.get("validation_result")
+    }
+    lead_values = [float(item["lead_seconds"]) for item in items if item.get("lead_seconds") is not None]
+    summary = {
+        "alerts": len(items),
+        "events": len(event_keys),
+        "early": sum(1 for item in items if item.get("alert_type") == "EARLY"),
+        "confirmed": sum(1 for item in items if item.get("alert_type") == "CONFIRMED"),
+        "better": sum(1 for item in items if item.get("alert_type") == "BETTER"),
+        "hit": sum(1 for result in validated_events.values() if result == "HIT"),
+        "miss": sum(1 for result in validated_events.values() if result == "MISS"),
+        "avg_lead_seconds": round(sum(lead_values) / len(lead_values), 1) if lead_values else None,
+    }
+    return {"items": items, "summary": summary}
 
 
 def _validations(database_url: str, params: dict, limit: int = 200) -> dict:
     start, end = _window(params)
     q = _search(params)
-    where_q = "AND (lower(icao) LIKE %s OR lower(COALESCE(callsign,'')) LIKE %s)" if q else ""
+    where_q = "AND (lower(v.icao) LIKE %s OR lower(COALESCE(v.callsign,'')) LIKE %s)" if q else ""
     args: list = [start, end]
     if q:
         args.extend([f"%{q}%", f"%{q}%"])
     summary = _query(database_url, f"""
         SELECT
           count(*)::int AS total,
-          count(*) FILTER (WHERE result='HIT')::int AS hit,
-          count(*) FILTER (WHERE result='MISS')::int AS miss,
-          count(*) FILTER (WHERE result='UNCERTAIN')::int AS uncertain,
-          count(*) FILTER (WHERE result='NO_DATA')::int AS no_data,
-          round(avg(abs(extract(epoch FROM actual_closest_time_utc - predicted_transit_time_utc)))
-                FILTER (WHERE actual_closest_time_utc IS NOT NULL)::numeric, 2) AS avg_abs_time_error_seconds,
-          round(avg(actual_offset_body_diameters)
-                FILTER (WHERE actual_offset_body_diameters IS NOT NULL)::numeric, 4) AS avg_actual_offset,
-          round(100.0 * count(*) FILTER (WHERE actual_closest_time_utc IS NOT NULL)
+          count(*) FILTER (WHERE v.result='HIT')::int AS hit,
+          count(*) FILTER (WHERE v.result='MISS')::int AS miss,
+          count(*) FILTER (WHERE v.result='UNCERTAIN')::int AS uncertain,
+          count(*) FILTER (WHERE v.result='NO_DATA')::int AS no_data,
+          round(avg(abs(extract(epoch FROM v.actual_closest_time_utc - v.predicted_transit_time_utc)))
+                FILTER (WHERE v.actual_closest_time_utc IS NOT NULL)::numeric, 2) AS avg_abs_time_error_seconds,
+          round(avg(v.actual_offset_body_diameters)
+                FILTER (WHERE v.actual_offset_body_diameters IS NOT NULL)::numeric, 4) AS avg_actual_offset,
+          round(100.0 * count(*) FILTER (WHERE v.actual_closest_time_utc IS NOT NULL)
                 / NULLIF(count(*), 0), 1) AS data_coverage_pct
-        FROM transit_validations
-        WHERE predicted_transit_time_utc >= %s AND predicted_transit_time_utc <= %s {where_q}
+        FROM transit_validations v
+        WHERE v.predicted_transit_time_utc >= %s AND v.predicted_transit_time_utc <= %s {where_q}
     """, tuple(args))[0]
     item_args = list(args)
     item_args.append(limit)
     items = _query(database_url, f"""
-        SELECT id, validated_at, predicted_transit_time_utc, actual_closest_time_utc,
-               extract(epoch FROM actual_closest_time_utc - predicted_transit_time_utc) AS time_error_seconds,
-               icao, callsign, body, result,
-               predicted_offset_body_diameters, actual_offset_body_diameters,
-               actual_separation_deg, vertical_offset_body_diameters,
-               horizontal_offset_body_diameters, message
-        FROM transit_validations
-        WHERE predicted_transit_time_utc >= %s AND predicted_transit_time_utc <= %s {where_q}
-        ORDER BY validated_at DESC
+        SELECT v.id, v.validated_at, v.predicted_transit_time_utc, v.actual_closest_time_utc,
+               extract(epoch FROM v.actual_closest_time_utc - v.predicted_transit_time_utc) AS time_error_seconds,
+               v.icao, v.callsign, v.body, v.result,
+               v.predicted_offset_body_diameters, v.actual_offset_body_diameters,
+               v.actual_separation_deg, v.vertical_offset_body_diameters,
+               v.horizontal_offset_body_diameters, v.message,
+               a.alert_type, a.printed_at AS alert_sent_at,
+               c.id AS candidate_id
+        FROM transit_validations v
+        LEFT JOIN alerts a ON a.id = v.source_alert_id
+        LEFT JOIN transit_candidates c ON c.id = a.transit_candidate_id
+        WHERE v.predicted_transit_time_utc >= %s AND v.predicted_transit_time_utc <= %s {where_q}
+        ORDER BY v.validated_at DESC
         LIMIT %s
     """, tuple(item_args))
     return {"summary": summary, "items": items}

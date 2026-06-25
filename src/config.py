@@ -67,6 +67,9 @@ class Settings:
     log_level: str
     log_to_file: bool
     log_dir: str
+    log_retain_full_days: int
+    log_retain_compressed_days: int
+    log_emergency_free_mb: int
     ui_enabled: bool
     ui_host: str
     ui_port: int
@@ -144,6 +147,9 @@ def load_settings() -> Settings:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         log_to_file=_get_bool("LOG_TO_FILE", True),
         log_dir=os.getenv("LOG_DIR", "./logs"),
+        log_retain_full_days=int(os.getenv("LOG_RETAIN_FULL_DAYS", "3")),
+        log_retain_compressed_days=int(os.getenv("LOG_RETAIN_COMPRESSED_DAYS", "10")),
+        log_emergency_free_mb=int(os.getenv("LOG_EMERGENCY_FREE_MB", "1536")),
         ui_enabled=_get_bool("UI_ENABLED", True),
         ui_host=os.getenv("UI_HOST", "0.0.0.0"),
         ui_port=int(os.getenv("UI_PORT", "9999")),
