@@ -11,6 +11,7 @@ from adsb_client import ADSBClient
 from airport_filter import classify_airport_traffic, parse_airport_filter_profiles
 from alerts import dedupe_key, format_alert
 from config import Settings, load_settings
+from data_retention import retention_due, run_data_retention
 from db import connect, run_migrations
 from ephemeris import get_body_states, get_body_states_many
 from geo import haversine_distance_km
@@ -1007,6 +1008,7 @@ def main() -> None:
     notifier = TelegramNotifier()
     histories: dict[str, deque[AircraftState]] = defaultdict(lambda: deque(maxlen=240))
     convergence_tracker: dict[tuple[str, str, int], CandidateConvergence] = {}
+    last_data_retention_monotonic: float | None = None
     if settings.ui_enabled:
         start_ui_server(settings)
     LOG.info("Aircraft Transit Hunter started mode=%s", settings.run_mode)
@@ -1017,6 +1019,13 @@ def main() -> None:
     while True:
         cycle_started_monotonic = time.monotonic()
         try:
+            if retention_due(last_data_retention_monotonic, settings.data_retention_interval_seconds):
+                try:
+                    run_data_retention(conn, settings)
+                except Exception as exc:
+                    LOG.exception("Data retention failed error=%s", exc)
+                finally:
+                    last_data_retention_monotonic = time.monotonic()
             if settings.transit_validation_enabled:
                 send_validation_notifications(storage, notifier)
             run_cycle(settings, client, storage, histories, notifier, convergence_tracker)

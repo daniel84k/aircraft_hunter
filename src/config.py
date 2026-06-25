@@ -70,6 +70,17 @@ class Settings:
     log_retain_full_days: int
     log_retain_compressed_days: int
     log_emergency_free_mb: int
+    data_retention_enabled: bool
+    data_retention_interval_seconds: int
+    data_retention_observations_hours: int
+    data_retention_rejected_candidate_days: int
+    data_retention_interesting_candidate_days: int
+    data_retention_prediction_run_days: int
+    data_retention_trajectory_snapshot_days: int
+    data_retention_emergency_free_mb: int
+    data_retention_emergency_observations_hours: int
+    data_retention_emergency_rejected_candidate_days: int
+    data_retention_delete_batch_size: int
     ui_enabled: bool
     ui_host: str
     ui_port: int
@@ -150,6 +161,17 @@ def load_settings() -> Settings:
         log_retain_full_days=int(os.getenv("LOG_RETAIN_FULL_DAYS", "3")),
         log_retain_compressed_days=int(os.getenv("LOG_RETAIN_COMPRESSED_DAYS", "10")),
         log_emergency_free_mb=int(os.getenv("LOG_EMERGENCY_FREE_MB", "1536")),
+        data_retention_enabled=_get_bool("DATA_RETENTION_ENABLED", True),
+        data_retention_interval_seconds=int(os.getenv("DATA_RETENTION_INTERVAL_SECONDS", "3600")),
+        data_retention_observations_hours=int(os.getenv("DATA_RETENTION_OBSERVATIONS_HOURS", "48")),
+        data_retention_rejected_candidate_days=int(os.getenv("DATA_RETENTION_REJECTED_CANDIDATE_DAYS", "7")),
+        data_retention_interesting_candidate_days=int(os.getenv("DATA_RETENTION_INTERESTING_CANDIDATE_DAYS", "30")),
+        data_retention_prediction_run_days=int(os.getenv("DATA_RETENTION_PREDICTION_RUN_DAYS", "14")),
+        data_retention_trajectory_snapshot_days=int(os.getenv("DATA_RETENTION_TRAJECTORY_SNAPSHOT_DAYS", "30")),
+        data_retention_emergency_free_mb=int(os.getenv("DATA_RETENTION_EMERGENCY_FREE_MB", "1536")),
+        data_retention_emergency_observations_hours=int(os.getenv("DATA_RETENTION_EMERGENCY_OBSERVATIONS_HOURS", "24")),
+        data_retention_emergency_rejected_candidate_days=int(os.getenv("DATA_RETENTION_EMERGENCY_REJECTED_CANDIDATE_DAYS", "3")),
+        data_retention_delete_batch_size=int(os.getenv("DATA_RETENTION_DELETE_BATCH_SIZE", "50000")),
         ui_enabled=_get_bool("UI_ENABLED", True),
         ui_host=os.getenv("UI_HOST", "0.0.0.0"),
         ui_port=int(os.getenv("UI_PORT", "9999")),
