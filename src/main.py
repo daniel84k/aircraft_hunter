@@ -131,6 +131,31 @@ def notification_event_key(candidate: TransitCandidate, event_window_seconds: in
     return (candidate.aircraft.icao.lower(), candidate.body.lower(), event_slot)
 
 
+def notification_same_event(
+    first: TransitCandidate,
+    second: TransitCandidate,
+    event_window_seconds: int = 600,
+) -> bool:
+    if first.aircraft.icao.lower() != second.aircraft.icao.lower():
+        return False
+    if first.body.lower() != second.body.lower():
+        return False
+    half_window_seconds = max(60, int(event_window_seconds)) / 2
+    delta_seconds = abs((first.transit_time_utc - second.transit_time_utc).total_seconds())
+    return delta_seconds <= half_window_seconds
+
+
+def notification_event_seen(
+    candidate: TransitCandidate,
+    seen_candidates: list[TransitCandidate],
+    event_window_seconds: int = 600,
+) -> bool:
+    return any(
+        notification_same_event(candidate, seen_candidate, event_window_seconds)
+        for seen_candidate in seen_candidates
+    )
+
+
 def notification_sort_key(candidate: TransitCandidate) -> tuple[int, float, float, float]:
     status_rank = 0 if candidate.status == "ALERT_READY" else 1
     return (status_rank, candidate.observer_distance_km, candidate.angular_separation_deg, -candidate.score)
@@ -797,8 +822,8 @@ def run_cycle(
 
         all_candidates.sort(key=notification_sort_key)
         notified_candidates_this_cycle = 0
-        notified_events_this_cycle: set[tuple[str, str, int]] = set()
-        evaluated_events_this_cycle: set[tuple[str, str, int]] = set()
+        notified_events_this_cycle: list[TransitCandidate] = []
+        evaluated_events_this_cycle: list[TransitCandidate] = []
         for candidate in all_candidates[:50]:
             alert_type = "CONSOLE"
             is_better_alert = False
@@ -809,8 +834,11 @@ def run_cycle(
             convergence_count = 0
             convergence_reason = "DISABLED"
             if eligible_for_notification and convergence_enabled:
-                event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
-                if event_key in evaluated_events_this_cycle:
+                if notification_event_seen(
+                    candidate,
+                    evaluated_events_this_cycle,
+                    settings.locked_alert_window_seconds,
+                ):
                     convergence_reason = "SAME_CYCLE_DUPLICATE"
                 else:
                     _confirmed_ready, convergence_count, convergence_reason = update_candidate_convergence(
@@ -819,7 +847,7 @@ def run_cycle(
                         settings,
                         cycle_started,
                     )
-                    evaluated_events_this_cycle.add(event_key)
+                    evaluated_events_this_cycle.append(candidate)
             notification_phase = candidate_notification_phase(
                 candidate,
                 convergence_count,
@@ -921,8 +949,11 @@ def run_cycle(
             if eligible_for_notification and not notification_ready:
                 continue
             if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
-                event_key = notification_event_key(candidate, settings.locked_alert_window_seconds)
-                if event_key in notified_events_this_cycle:
+                if notification_event_seen(
+                    candidate,
+                    notified_events_this_cycle,
+                    settings.locked_alert_window_seconds,
+                ):
                     continue
                 if notification_phase == "EARLY" and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
                     continue
@@ -953,7 +984,7 @@ def run_cycle(
                 alert_count += 1
                 if notification_phase == "EARLY":
                     notified_candidates_this_cycle += 1
-                notified_events_this_cycle.add(event_key)
+                notified_events_this_cycle.append(candidate)
                 cycle_log(
                     cycle_id,
                     5,

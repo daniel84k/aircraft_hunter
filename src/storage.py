@@ -274,14 +274,16 @@ class Storage:
         alert_type: str | None = None,
     ) -> dict[str, float] | None:
         window = max(60, int(event_window_seconds))
-        event_slot = _event_slot(transit_time_utc, window)
+        half_window = timedelta(seconds=window / 2)
+        window_start = transit_time_utc - half_window
+        window_end = transit_time_utc + half_window
         confirmed_filter = (
             "AND a.alert_type <> 'EARLY' AND tc.rejection_reason IS NULL"
             if confirmed_only
             else ""
         )
         alert_type_filter = "AND a.alert_type = %s" if alert_type else ""
-        params = [icao, body, window, event_slot]
+        params = [icao, body, window_start, window_end]
         if alert_type:
             params.append(alert_type)
         with self.conn.cursor() as cur:
@@ -294,7 +296,7 @@ class Storage:
                 JOIN transit_candidates tc ON tc.id = a.transit_candidate_id
                 WHERE lower(tc.icao) = lower(%s)
                   AND lower(tc.body) = lower(%s)
-                  AND floor(extract(epoch from tc.transit_time_utc) / %s) = %s
+                  AND tc.transit_time_utc BETWEEN %s AND %s
                   {confirmed_filter}
                   {alert_type_filter}
                 """,

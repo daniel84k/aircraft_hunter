@@ -5,7 +5,18 @@ from config import load_settings
 from airport_filter import AirportTrafficMatch
 from models import AircraftState, TransitCandidate
 from main import REJECTION_REASONS
-from main import candidate_notification_phase, classify_candidate, is_better_notification, notification_event_key, notification_sort_key, reachable_relocation_km, suppress_airport_traffic_alert, update_candidate_convergence
+from main import (
+    candidate_notification_phase,
+    classify_candidate,
+    is_better_notification,
+    notification_event_key,
+    notification_event_seen,
+    notification_same_event,
+    notification_sort_key,
+    reachable_relocation_km,
+    suppress_airport_traffic_alert,
+    update_candidate_convergence,
+)
 
 
 def test_rejection_reasons_include_required_values() -> None:
@@ -266,6 +277,18 @@ def test_notification_event_key_uses_wide_event_window() -> None:
     second.transit_time_utc = datetime(2026, 6, 18, 19, 29, 5, tzinfo=timezone.utc)
 
     assert notification_event_key(first) == notification_event_key(second)
+
+
+def test_notification_same_event_crosses_fixed_slot_boundary() -> None:
+    settings = load_settings()
+    first = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    second = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    first.transit_time_utc = datetime(2026, 6, 18, 19, 19, 59, tzinfo=timezone.utc)
+    second.transit_time_utc = datetime(2026, 6, 18, 19, 20, 1, tzinfo=timezone.utc)
+
+    assert notification_event_key(first) != notification_event_key(second)
+    assert notification_same_event(first, second, event_window_seconds=600)
+    assert notification_event_seen(second, [first], event_window_seconds=600)
 
 
 def test_better_notification_allows_large_offset_improvement() -> None:
