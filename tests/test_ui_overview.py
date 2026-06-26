@@ -63,6 +63,11 @@ def test_dashboard_filter_funnel_is_clickable() -> None:
     assert "showTab('logs')" in ui.INDEX_HTML
 
 
+def test_dashboard_marks_unsent_alert_ready_as_waiting_for_confirmation() -> None:
+    assert "Czeka na potwierdzenie" in ui.INDEX_HTML
+    assert "notification_block_reason" in ui.INDEX_HTML
+
+
 def test_alert_dashboard_focuses_on_stage_time_and_result() -> None:
     assert "Historia powiadomień" in ui.INDEX_HTML
     assert "Czas na reakcję" in ui.INDEX_HTML
@@ -240,4 +245,44 @@ def test_event_detail_exposes_confirmation_threshold(monkeypatch) -> None:
 
     assert result["required_early_cycles"] == 2
     assert len(result["event_series"]) == 1
+    assert result["candidate"]["notification_block_reason"] == "ONLY_1_CONVERGED_CYCLE"
     assert result["actual_result"] is None
+
+
+def test_notification_block_analysis_detects_moving_transit_time(monkeypatch) -> None:
+    first = datetime(2026, 6, 23, 10, 0, tzinfo=timezone.utc)
+    second = first + timedelta(seconds=20)
+    candidate = {
+        "status": "ALERT_READY",
+        "score": 1.0,
+        "offset_body_diameters": 0.02,
+        "created_at": second,
+    }
+    series = [
+        {
+            "created_at": first,
+            "transit_time_utc": first + timedelta(minutes=5),
+            "offset_body_diameters": 0.02,
+            "observer_lat": 52.0,
+            "observer_lon": 21.0,
+            "status": "ALERT_READY",
+        },
+        {
+            "created_at": second,
+            "transit_time_utc": first + timedelta(minutes=5, seconds=12),
+            "offset_body_diameters": 0.02,
+            "observer_lat": 52.0,
+            "observer_lon": 21.0,
+            "status": "ALERT_READY",
+        },
+    ]
+    monkeypatch.setenv("ALERT_MIN_SCORE", "0.70")
+    monkeypatch.setenv("MAX_OFFSET_BODY_DIAMETERS_FOR_ALERT", "0.25")
+    monkeypatch.setenv("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", "2")
+    monkeypatch.setenv("NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "5")
+
+    result = ui._notification_block_analysis(candidate, series)
+
+    assert result["notification_consecutive_cycles"] == 1
+    assert result["notification_required_cycles"] == 2
+    assert result["notification_block_reason"] == "TRANSIT_TIME_MOVED"

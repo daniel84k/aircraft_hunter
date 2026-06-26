@@ -311,7 +311,8 @@ function bars(rows, key) {
 }
 const bodyLabel = value => String(value||'').toLowerCase()==='sun' ? 'Słońce' : String(value||'').toLowerCase()==='moon' ? 'Księżyc' : (value||'-');
 const statusLabel = value => ({ALERT_SENT:'Alert wysłany',ALERT_READY:'Gotowy do alertu',OBSERVATION_CANDIDATE:'Obserwowany',REJECTED:'Odrzucony',CANDIDATE_STORED:'Zapisany'}[value]||value||'-');
-const reasonLabel = value => ({LOW_SCORE:'Za niski score',TOO_EARLY_FOR_ALERT:'Za wcześnie lub brak potwierdzenia w kolejnym cyklu',TOO_LATE:'Za mało czasu na reakcję',AIRPORT_TRAFFIC:'Ruch lotniskowy',AIRPORT_STRICT:'Ruch lotniskowy',LOW_ALTITUDE:'Za mała wysokość',UNSTABLE_FLIGHT:'Niestabilny tor lotu','-':'Brak dodatkowej przyczyny'}[value]||String(value||'-').replaceAll('_',' ').toLowerCase());
+const reasonLabel = value => ({LOW_SCORE:'Za niski score',TOO_EARLY_FOR_ALERT:'Za wcześnie lub brak potwierdzenia w kolejnym cyklu',TOO_LATE:'Za mało czasu na reakcję',AIRPORT_TRAFFIC:'Ruch lotniskowy',AIRPORT_STRICT:'Ruch lotniskowy',LOW_ALTITUDE:'Za mała wysokość',UNSTABLE_FLIGHT:'Niestabilny tor lotu',FIRST_OBSERVATION:'Pierwszy cykl kwalifikujący — brak potwierdzenia',ONLY_1_CONVERGED_CYCLE:'Tylko 1 stabilny cykl',CYCLE_GAP:'Przerwa między cyklami przerwała potwierdzenie',TRANSIT_TIME_MOVED:'Czas tranzytu przesunął się za mocno',OBSERVER_POINT_MOVED:'Punkt obserwacji przesunął się za mocno',OFFSET_WORSENED:'Offset pogorszył się za mocno',SAME_CYCLE_DUPLICATE:'Duplikat w tym samym cyklu','-':'Brak dodatkowej przyczyny'}[value]||String(value||'-').replaceAll('_',' ').toLowerCase());
+const notificationReason = row => row.notification_block_reason ? reasonLabel(row.notification_block_reason) : reasonLabel(row.rejection_reason);
 const alertPhaseLabel = value => ({EARLY:'Wczesny',CONFIRMED:'Potwierdzony',BETTER:'Lepszy punkt',CONSOLE:'Alert'}[String(value||'').toUpperCase()]||value||'Alert');
 const durationLabel = value => {if(value===null||value===undefined||Number.isNaN(Number(value)))return '—';const raw=Math.round(Number(value)),sign=raw<0?'-':'',seconds=Math.abs(raw),minutes=Math.floor(seconds/60),rest=seconds%60;return minutes?`${sign}${minutes} min ${rest?rest+' s':''}`.trim():`${sign}${rest} s`;};
 function relativeTime(value) { const seconds=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/1000)); return seconds<60?`${seconds} s temu`:seconds<3600?`${Math.round(seconds/60)} min temu`:`${Math.round(seconds/3600)} godz. temu`; }
@@ -369,7 +370,7 @@ function renderOverview() {
     {name:'Najlepszy score',fn:r=>`${score(r.score)}<span class="threshold">próg ${num(o.alert_min_score,2)}</span>`},
     {name:'Offset',fn:r=>num(r.offset_body_diameters,3)},
     {name:'Cykle',fn:r=>`${num(r.qualifying_cycles)} spełniających / ${num(r.cycle_count)} wszystkich`},
-    {name:'Decyzja',fn:r=>`<span class="pill ${clsStatus(r.status)}">${statusLabel(r.status)}</span><div class="reason">${reasonLabel(r.rejection_reason)}</div>`},
+    {name:'Decyzja',fn:r=>`<span class="pill ${r.notification_block_reason?'warn':clsStatus(r.status)}">${r.notification_block_reason?'Czeka na potwierdzenie':statusLabel(r.status)}</span><div class="reason">${notificationReason(r)}</div>`},
     {name:'',fn:r=>`<button onclick="openEvent(${Number(r.id)})">Pełna analiza</button>`}
   ];
   overview.innerHTML = `<div class="decision"><div class="decision-icon">${t.alerts?'✓':'i'}</div><div><h2>${systemOk?'Analiza działa':'Sprawdź aktualność analizy'}</h2><p>${decision} ${systemOk?`Ostatni cykl zakończył się ${relativeTime(latest.finished_at)}.`:'Brak świeżo zakończonego cyklu.'}</p></div></div>
@@ -434,7 +435,7 @@ function renderEventDetail(data){
     <div class="panel"><div class="panel-head"><h2>Czy samolot przeciął tarczę?</h2><span class="muted">odległość od środka w średnicach tarczy</span></div>${transitReadout(data)}${skyChart(data.predicted_sky||[],data.actual_sky||[],c.body)}<div class="chart-legend"><span><i class="legend-line" style="background:#8b7cff"></i>prognoza</span><span><i class="legend-line" style="background:#22c55e"></i>pomiary ADS-B</span><span>duży okrąg: widoczna tarcza</span></div><div class="muted" style="margin-top:8px;line-height:1.5">Wykres pokazuje widok przez aparat: lewo/prawo i góra/dół. Krawędź tarczy leży 0,5 średnicy od jej środka. Znacznik przy brzegu wykresu oznacza, że samolot minął ją o więcej niż 2 średnice.</div></div>
   </div><div class="grid-2">
     <div class="panel"><div class="panel-head"><h2>Score w kolejnych cyklach</h2><span class="muted">linia przerywana: próg 0,70</span></div>${scoreTimeline(data.event_series||[])}</div>
-    <div class="panel"><h2>Składniki najlepszej oceny</h2><div class="kv"><div>Stabilność</div><div>${num(c.stability_score,2)}</div><div>Wyrównanie</div><div>${num(c.alignment_score,2)}</div><div>Wysokość</div><div>${num(c.altitude_score,2)}</div><div>Elewacja obiektu</div><div>${num(c.body_elevation_score,2)}</div><div>Zasięg samolotu</div><div>${num(c.aircraft_range_score,2)}</div><div>Czas na reakcję</div><div>${num(c.lead_time_score,2)}</div><div>Pozycja obserwatora</div><div>${num(c.observer_distance_score,2)}</div><div>Decyzja</div><div>${statusLabel(c.status)} — ${reasonLabel(c.rejection_reason)}</div></div></div>
+    <div class="panel"><h2>Składniki najlepszej oceny</h2><div class="kv"><div>Stabilność</div><div>${num(c.stability_score,2)}</div><div>Wyrównanie</div><div>${num(c.alignment_score,2)}</div><div>Wysokość</div><div>${num(c.altitude_score,2)}</div><div>Elewacja obiektu</div><div>${num(c.body_elevation_score,2)}</div><div>Zasięg samolotu</div><div>${num(c.aircraft_range_score,2)}</div><div>Czas na reakcję</div><div>${num(c.lead_time_score,2)}</div><div>Pozycja obserwatora</div><div>${num(c.observer_distance_score,2)}</div><div>Decyzja</div><div>${statusLabel(c.status)} — ${notificationReason(c)}</div></div></div>
   </div>`;
   setTimeout(()=>renderEventGroundMap(data),0);
 }
@@ -443,14 +444,17 @@ function eventLifecycle(data){
   const requiredEarly=Number(data.required_early_cycles||2);
   const isRejected=c.status==='REJECTED';
   const observed=series.length>0;
-  const confirmed=!isRejected && (Number(series.length)>=requiredEarly || c.status==='ALERT_READY' || c.status==='ALERT_SENT');
   const alerted=!isRejected && c.status==='ALERT_SENT';
+  const blocked=!!c.notification_block_reason && !alerted && (c.status==='ALERT_READY'||c.status==='OBSERVATION_CANDIDATE');
+  const confirmed=!isRejected && !blocked && (Number(series.length)>=requiredEarly || c.status==='ALERT_SENT');
   const resolved=!!actual;
   const stopIndex=resolved ? 4 : alerted ? 3 : confirmed ? 2 : observed ? 1 : 0;
   const stopLabel=resolved
     ? `Zatrzymane na etapie wyniku: ${actual.result}.`
     : isRejected
       ? `Zatrzymane wcześniej: ${reasonLabel(c.rejection_reason)}.`
+      : blocked
+        ? `Gotowe geometrycznie, ale bez alertu: ${notificationReason(c)}.`
       : alerted
         ? 'Alert został wysłany.'
         : confirmed
@@ -552,7 +556,7 @@ function eventStage(row){
   if(row.validation_result)return {label:`Wynik ${row.validation_result}`,kind:row.validation_result==='HIT'?'good':row.validation_result==='MISS'?'bad':'warn'};
   if(Number(row.alert_count)>0)return {label:'Alert wysłany',kind:'good'};
   if(row.status==='OBSERVATION_CANDIDATE')return {label:'Obserwowany',kind:'warn'};
-  if(row.status==='ALERT_READY')return {label:'Gotowy do alertu',kind:'good'};
+  if(row.status==='ALERT_READY')return {label:'Czeka na potwierdzenie',kind:'warn'};
   return {label:'Odrzucony',kind:'bad'};
 }
 function eventFilterMatch(row){if(eventFilter==='near')return Number(row.score)>=Number(lastData.events.alert_min_score);if(eventFilter==='alerted')return Number(row.alert_count)>0;if(eventFilter==='hit')return row.validation_result==='HIT';if(eventFilter==='miss')return row.validation_result==='MISS';return true;}
@@ -588,7 +592,7 @@ function renderCandidates(){
     {name:'Wykryte',fn:r=>`${fmt(r.first_seen_at)}<br><span class="muted">ostatni cykl: ${fmt(r.last_seen_at)}</span>`},
     {name:'Najlepszy wynik',fn:r=>`${score(r.score)}<br><span class="muted">offset ${num(r.offset_body_diameters,3)} · obserwator ${num(r.observer_distance_km,2)} km</span>`},
     {name:'Stabilność',fn:r=>`<b>${num(r.qualifying_cycles)}</b> cykli ≥ ${num(data.alert_min_score,2)}<br><span class="muted">${num(r.cycle_count)} cykli zdarzenia · wymagane min. ${num(data.required_early_cycles)}</span>`},
-    {name:'Etap',fn:r=>{const stage=eventStage(r);return `<span class="pill ${stage.kind}">${esc(stage.label)}</span><div class="reason">${r.validation_result?`Offset ADS-B: ${num(r.actual_offset_body_diameters,3)}`:reasonLabel(r.rejection_reason)}</div>`;}},
+    {name:'Etap',fn:r=>{const stage=eventStage(r);return `<span class="pill ${stage.kind}">${esc(stage.label)}</span><div class="reason">${r.validation_result?`Offset ADS-B: ${num(r.actual_offset_body_diameters,3)}`:notificationReason(r)}</div>`;}},
     {name:'Dane',fn:r=>r.has_snapshot?'<span class="pill good">Pełna migawka</span>':'<span class="muted">bez trajektorii</span>'},
     {name:'',fn:r=>`<button onclick="openEvent(${Number(r.candidate_id)})">Pełna analiza</button>`}
   ];
@@ -824,7 +828,9 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
     start, end = _window(params)
     range_value = params.get("range", ["30m"])[0]
     trend_bucket = "1 hour" if range_value == "today" else "15 minutes" if range_value == "6h" else "1 minute"
-    alert_min_score = float(os.getenv("ALERT_MIN_SCORE", _read_env_file().get("ALERT_MIN_SCORE", "0.70")))
+    env = _read_env_file()
+    alert_min_score = float(os.getenv("ALERT_MIN_SCORE", env.get("ALERT_MIN_SCORE", "0.70")))
+    window = max(60, int(os.getenv("LOCKED_ALERT_WINDOW_SECONDS", env.get("LOCKED_ALERT_WINDOW_SECONDS", "600"))))
     totals = _query(database_url, """
         SELECT
           (SELECT count(*) FROM transit_candidates WHERE created_at >= %s AND created_at <= %s)::int AS candidates,
@@ -868,6 +874,7 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
           WHERE c.created_at >= %s AND c.created_at <= %s
         )
         SELECT r.id, r.icao, r.callsign, r.body, r.transit_time_utc, r.created_at,
+               floor(extract(epoch FROM r.transit_time_utc) / %s)::bigint AS event_slot,
                r.score, r.offset_body_diameters, r.status, r.rejection_reason,
                r.observer_distance_km, stats.cycle_count, stats.qualifying_cycles
         FROM ranked r
@@ -876,7 +883,28 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
         WHERE r.rank=1
         ORDER BY r.score DESC, r.created_at DESC
         LIMIT 8
-    """, (alert_min_score, start, end, start, end))
+    """, (alert_min_score, start, end, start, end, window))
+    for item in top_events:
+        if item.get("status") not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+            continue
+        series = _query(database_url, """
+            WITH ranked AS (
+              SELECT created_at, transit_time_utc, score, offset_body_diameters,
+                     observer_lat, observer_lon, status, rejection_reason,
+                     row_number() OVER (
+                       PARTITION BY prediction_run_id
+                       ORDER BY score DESC, offset_body_diameters ASC
+                     ) AS rank
+              FROM transit_candidates
+              WHERE lower(icao)=lower(%s) AND lower(body)=lower(%s)
+                AND floor(extract(epoch FROM transit_time_utc) / %s)=%s
+            )
+            SELECT created_at, transit_time_utc, score, offset_body_diameters,
+                   observer_lat, observer_lon, status, rejection_reason
+            FROM ranked WHERE rank=1
+            ORDER BY created_at
+        """, (item["icao"], item["body"], window, item["event_slot"]))
+        item.update(_notification_block_analysis(item, series))
     rejection_summary = _query(database_url, """
         SELECT COALESCE(rejection_reason, '-') AS rejection_reason, count(*)::int AS count
         FROM transit_candidates
@@ -906,6 +934,82 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
             "warnings": 0,
             "rate_limits": 0,
         },
+    }
+
+
+def _notification_limits() -> dict:
+    env = _read_env_file()
+    return {
+        "alert_min_score": float(os.getenv("ALERT_MIN_SCORE", env.get("ALERT_MIN_SCORE", "0.70"))),
+        "max_offset": float(os.getenv("MAX_OFFSET_BODY_DIAMETERS_FOR_ALERT", env.get("MAX_OFFSET_BODY_DIAMETERS_FOR_ALERT", "0.25"))),
+        "required_early": int(os.getenv("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", env.get("EARLY_NOTIFICATION_CONSECUTIVE_CYCLES", "2"))),
+        "required_confirmed": int(os.getenv("NOTIFICATION_CONSECUTIVE_CYCLES", env.get("NOTIFICATION_CONSECUTIVE_CYCLES", "3"))),
+        "max_time_shift": float(os.getenv("NOTIFICATION_MAX_TIME_SHIFT_SECONDS", env.get("NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "5"))),
+        "max_observer_shift": float(os.getenv("NOTIFICATION_MAX_OBSERVER_SHIFT_KM", env.get("NOTIFICATION_MAX_OBSERVER_SHIFT_KM", "0.5"))),
+        "max_offset_worsening": float(os.getenv("NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", env.get("NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "0.05"))),
+    }
+
+
+def _notification_block_analysis(candidate: dict, series: list[dict]) -> dict:
+    if candidate.get("status") not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+        return {}
+
+    limits = _notification_limits()
+    early_quality = (
+        float(candidate.get("score") or 0) >= limits["alert_min_score"]
+        and float(candidate.get("offset_body_diameters") or 999) <= limits["max_offset"]
+    )
+    required = limits["required_early"] if early_quality else limits["required_confirmed"]
+    candidate_created_at = candidate.get("created_at")
+    consecutive = 0
+    reason = "FIRST_OBSERVATION"
+    previous = None
+
+    for row in sorted(series, key=lambda item: item.get("created_at") or datetime.min.replace(tzinfo=timezone.utc)):
+        if row.get("status") not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+            continue
+        if candidate_created_at and row.get("created_at") and row["created_at"] > candidate_created_at:
+            continue
+        if previous is None:
+            consecutive = 1
+            reason = "FIRST_OBSERVATION"
+        else:
+            time_shift = abs((row["transit_time_utc"] - previous["transit_time_utc"]).total_seconds())
+            observer_shift = haversine_distance_km(
+                float(previous["observer_lat"]),
+                float(previous["observer_lon"]),
+                float(row["observer_lat"]),
+                float(row["observer_lon"]),
+            )
+            offset_worsening = float(row["offset_body_diameters"]) - float(previous["offset_body_diameters"])
+            if time_shift > limits["max_time_shift"]:
+                consecutive = 1
+                reason = "TRANSIT_TIME_MOVED"
+            elif observer_shift > limits["max_observer_shift"]:
+                consecutive = 1
+                reason = "OBSERVER_POINT_MOVED"
+            elif offset_worsening > limits["max_offset_worsening"]:
+                consecutive = 1
+                reason = "OFFSET_WORSENED"
+            else:
+                consecutive += 1
+                reason = "CONVERGED"
+        previous = row
+
+    if consecutive >= required:
+        return {
+            "notification_consecutive_cycles": consecutive,
+            "notification_required_cycles": required,
+            "notification_block_reason": None,
+        }
+
+    block_reason = reason
+    if reason in {"FIRST_OBSERVATION", "CONVERGED"}:
+        block_reason = f"ONLY_{max(0, consecutive)}_CONVERGED_CYCLE"
+    return {
+        "notification_consecutive_cycles": consecutive,
+        "notification_required_cycles": required,
+        "notification_block_reason": block_reason,
     }
 
 
@@ -995,6 +1099,7 @@ def _event_detail(database_url: str, candidate_id: int) -> dict:
     if datetime.now(timezone.utc) >= transit_time + timedelta(seconds=60) and len(observations) >= 2:
         actual_result = _closest_sky_result(actual_sky)
     observer_grid = _event_observer_grid(candidate, predicted_points)
+    candidate.update(_notification_block_analysis(candidate, series))
     candidate.pop("points", None)
     return {
         "candidate": candidate,
@@ -1243,7 +1348,7 @@ def _events(database_url: str, params: dict, limit: int = 300) -> dict:
           GROUP BY normalized_icao, normalized_body, event_slot
         )
         SELECT ranked.id AS candidate_id, ranked.icao, ranked.callsign, ranked.aircraft_type,
-               ranked.body, ranked.event_slot, ranked.transit_time_utc,
+               ranked.body, ranked.event_slot, ranked.transit_time_utc, ranked.created_at,
                stats.first_seen_at, stats.last_seen_at, stats.cycle_count,
                stats.qualifying_cycles, stats.best_score AS score,
                ranked.offset_body_diameters, ranked.observer_distance_km,
@@ -1271,6 +1376,27 @@ def _events(database_url: str, params: dict, limit: int = 300) -> dict:
         ORDER BY stats.best_score DESC, stats.last_seen_at DESC
         LIMIT %s
     """, tuple(args))
+    for item in items:
+        if item.get("alert_count", 0) > 0 or item.get("status") not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+            continue
+        series = _query(database_url, """
+            WITH ranked AS (
+              SELECT created_at, transit_time_utc, score, offset_body_diameters,
+                     observer_lat, observer_lon, status, rejection_reason,
+                     row_number() OVER (
+                       PARTITION BY prediction_run_id
+                       ORDER BY score DESC, offset_body_diameters ASC
+                     ) AS rank
+              FROM transit_candidates
+              WHERE lower(icao)=lower(%s) AND lower(body)=lower(%s)
+                AND floor(extract(epoch FROM transit_time_utc) / %s)=%s
+            )
+            SELECT created_at, transit_time_utc, score, offset_body_diameters,
+                   observer_lat, observer_lon, status, rejection_reason
+            FROM ranked WHERE rank=1
+            ORDER BY created_at
+        """, (item["icao"], item["body"], window, item["event_slot"]))
+        item.update(_notification_block_analysis(item, series))
     summary = {
         "events": len(items),
         "near_alert": sum(1 for item in items if float(item["score"] or 0) >= alert_min_score),
