@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 import json
 import logging
 
+from geo import haversine_distance_km
 from models import AircraftState, PredictedPoint, TransitCandidate
+from observer_solver import google_maps_url, google_nav_url
 from validation import ActualObservation, ValidationResult
 
 
@@ -45,6 +47,60 @@ def serialize_prediction_path(
             for point in sampled
         ],
     }
+
+
+def _candidate_from_notification_row(row) -> TransitCandidate:
+    aircraft = AircraftState(
+        icao=row[1],
+        callsign=row[2],
+        aircraft_type=row[3],
+        lat=0.0,
+        lon=0.0,
+        altitude_ft=row[14],
+        ground_speed_kt=row[17],
+        track_deg=row[16],
+        vertical_rate_fpm=row[18],
+        origin=None,
+        destination=None,
+        timestamp=datetime.now(tz=row[5].tzinfo),
+        raw_json={},
+    )
+    return TransitCandidate(
+        aircraft=aircraft,
+        body=row[4],
+        transit_time_utc=row[5],
+        observer_lat=row[6],
+        observer_lon=row[7],
+        observer_distance_km=row[8],
+        google_maps_url=google_maps_url(row[6], row[7]),
+        google_nav_url=google_nav_url(row[6], row[7]),
+        angular_separation_deg=row[9],
+        body_radius_deg=row[10],
+        offset_body_diameters=row[11],
+        score=row[12],
+        confidence=row[13],
+        aircraft_altitude_ft=row[14],
+        aircraft_range_km=row[15],
+        aircraft_track_deg=row[16],
+        aircraft_ground_speed_kt=row[17],
+        aircraft_vertical_rate_fpm=row[18],
+        body_azimuth_deg=row[19],
+        body_elevation_deg=row[20],
+        status=row[21],
+        rejection_reason=row[22],
+        dedupe_key=row[23],
+        stability_score=row[24],
+        alignment_score=row[25],
+        altitude_score=row[26],
+        body_elevation_score=row[27],
+        aircraft_range_score=row[28],
+        lead_time_score=row[29],
+        observer_distance_score=row[30],
+        observer_home_offset_body_diameters=row[31],
+        observer_best_grid_offset_body_diameters=row[32],
+        observer_grid_points_checked=row[33],
+        observer_selected_from_home=row[34],
+    )
 
 
 class Storage:
@@ -186,6 +242,89 @@ class Storage:
             candidate_id = cur.fetchone()[0]
         self.conn.commit()
         return candidate_id
+
+    def insert_radar_event(
+        self,
+        run_id: int,
+        candidate: TransitCandidate,
+        *,
+        reachable_now: bool,
+    ) -> int:
+        ac = candidate.aircraft
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO radar_events (
+                    prediction_run_id, icao, callsign, aircraft_type, body,
+                    transit_time_utc, time_to_transit_seconds,
+                    observer_lat, observer_lon, observer_distance_km,
+                    angular_separation_deg, body_radius_deg, offset_body_diameters,
+                    home_offset_body_diameters, best_grid_offset_body_diameters,
+                    grid_points_checked, selected_from_home, reachable_now,
+                    score, confidence, stability_score,
+                    aircraft_altitude_ft, aircraft_range_km, aircraft_track_deg,
+                    aircraft_ground_speed_kt, aircraft_vertical_rate_fpm,
+                    body_azimuth_deg, body_elevation_deg,
+                    alert_status, alert_rejection_reason
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                ) RETURNING id
+                """,
+                (
+                    run_id,
+                    ac.icao,
+                    ac.callsign,
+                    ac.aircraft_type,
+                    candidate.body,
+                    candidate.transit_time_utc,
+                    int((candidate.transit_time_utc - ac.timestamp).total_seconds()),
+                    candidate.observer_lat,
+                    candidate.observer_lon,
+                    candidate.observer_distance_km,
+                    candidate.angular_separation_deg,
+                    candidate.body_radius_deg,
+                    candidate.offset_body_diameters,
+                    candidate.observer_home_offset_body_diameters,
+                    candidate.observer_best_grid_offset_body_diameters,
+                    candidate.observer_grid_points_checked,
+                    candidate.observer_selected_from_home,
+                    reachable_now,
+                    candidate.score,
+                    candidate.confidence,
+                    candidate.stability_score,
+                    candidate.aircraft_altitude_ft,
+                    candidate.aircraft_range_km,
+                    candidate.aircraft_track_deg,
+                    candidate.aircraft_ground_speed_kt,
+                    candidate.aircraft_vertical_rate_fpm,
+                    candidate.body_azimuth_deg,
+                    candidate.body_elevation_deg,
+                    candidate.status,
+                    candidate.rejection_reason,
+                ),
+            )
+            radar_event_id = cur.fetchone()[0]
+        self.conn.commit()
+        return radar_event_id
+
+    def link_radar_event_candidate(
+        self,
+        radar_event_id: int,
+        candidate_id: int,
+        candidate: TransitCandidate,
+    ) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE radar_events
+                SET transit_candidate_id=%s, alert_status=%s, alert_rejection_reason=%s
+                WHERE id=%s
+                """,
+                (candidate_id, candidate.status, candidate.rejection_reason, radar_event_id),
+            )
+        self.conn.commit()
 
     def upsert_event_trajectory(
         self,
@@ -341,6 +480,141 @@ class Storage:
                 (printed_at, candidate_id),
             )
         self.conn.commit()
+
+    def mark_candidate_rejected(self, candidate_id: int, reason: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE transit_candidates
+                SET status='REJECTED', rejection_reason=%s
+                WHERE id=%s AND alert_sent=false
+                """,
+                (reason, candidate_id),
+            )
+        self.conn.commit()
+
+    def pending_notification_candidates(
+        self,
+        *,
+        now: datetime,
+        event_window_seconds: int,
+        lookback_seconds: int,
+        limit: int = 50,
+    ) -> list[tuple[int, TransitCandidate]]:
+        window = max(60, int(event_window_seconds))
+        created_after = now - timedelta(seconds=max(60, int(lookback_seconds)))
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH ranked AS (
+                    SELECT
+                        tc.*,
+                        floor(extract(epoch from tc.transit_time_utc) / %s)::bigint AS event_slot,
+                        row_number() OVER (
+                            PARTITION BY lower(tc.icao), lower(tc.body),
+                                         floor(extract(epoch from tc.transit_time_utc) / %s)
+                            ORDER BY
+                                CASE WHEN tc.status = 'ALERT_READY' THEN 0 ELSE 1 END,
+                                tc.observer_distance_km ASC,
+                                tc.angular_separation_deg ASC,
+                                tc.score DESC,
+                                tc.created_at DESC
+                        ) AS rank
+                    FROM transit_candidates tc
+                    WHERE tc.status IN ('ALERT_READY', 'OBSERVATION_CANDIDATE')
+                      AND tc.alert_sent = false
+                      AND tc.transit_time_utc >= %s
+                      AND tc.created_at >= %s
+                )
+                SELECT
+                    id, icao, callsign, aircraft_type, body, transit_time_utc,
+                    observer_lat, observer_lon, observer_distance_km,
+                    angular_separation_deg, body_radius_deg, offset_body_diameters,
+                    score, confidence, aircraft_altitude_ft, aircraft_range_km,
+                    aircraft_track_deg, aircraft_ground_speed_kt, aircraft_vertical_rate_fpm,
+                    body_azimuth_deg, body_elevation_deg, status, rejection_reason,
+                    dedupe_key, stability_score, alignment_score, altitude_score,
+                    body_elevation_score, aircraft_range_score, lead_time_score,
+                    observer_distance_score, observer_home_offset_body_diameters,
+                    observer_best_grid_offset_body_diameters, observer_grid_points_checked,
+                    observer_selected_from_home
+                FROM ranked
+                WHERE rank = 1
+                ORDER BY
+                    CASE WHEN status = 'ALERT_READY' THEN 0 ELSE 1 END,
+                    observer_distance_km ASC,
+                    angular_separation_deg ASC,
+                    score DESC
+                LIMIT %s
+                """,
+                (window, window, now, created_after, max(1, limit)),
+            )
+            rows = cur.fetchall()
+        self.conn.commit()
+        return [(row[0], _candidate_from_notification_row(row)) for row in rows]
+
+    def stored_candidate_convergence_count(
+        self,
+        candidate: TransitCandidate,
+        *,
+        event_window_seconds: int,
+        max_gap_seconds: float,
+        max_time_shift_seconds: float,
+        max_observer_shift_km: float,
+        max_offset_worsening_diameters: float,
+        limit: int = 10,
+    ) -> tuple[int, str]:
+        window = max(60, int(event_window_seconds))
+        event_slot = _event_slot(candidate.transit_time_utc, window)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT created_at, transit_time_utc, observer_lat, observer_lon, offset_body_diameters
+                FROM transit_candidates
+                WHERE lower(icao) = lower(%s)
+                  AND lower(body) = lower(%s)
+                  AND floor(extract(epoch from transit_time_utc) / %s)::bigint = %s
+                  AND status IN ('ALERT_READY', 'OBSERVATION_CANDIDATE')
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (
+                    candidate.aircraft.icao,
+                    candidate.body,
+                    window,
+                    event_slot,
+                    max(1, limit),
+                ),
+            )
+            rows = cur.fetchall()
+        self.conn.commit()
+        if not rows:
+            return 0, "NO_STORED_CANDIDATES"
+
+        count = 1
+        reason = "FIRST_OBSERVATION"
+        previous = rows[0]
+        for current in rows[1:]:
+            gap_seconds = abs((previous[0] - current[0]).total_seconds())
+            time_shift = abs((previous[1] - current[1]).total_seconds())
+            observer_shift = haversine_distance_km(previous[2], previous[3], current[2], current[3])
+            offset_worsening = previous[4] - current[4]
+            if gap_seconds > max(30, max_gap_seconds):
+                reason = "CYCLE_GAP"
+                break
+            if time_shift > max_time_shift_seconds:
+                reason = "TRANSIT_TIME_MOVED"
+                break
+            if observer_shift > max_observer_shift_km:
+                reason = "OBSERVER_POINT_MOVED"
+                break
+            if offset_worsening > max_offset_worsening_diameters:
+                reason = "OFFSET_WORSENED"
+                break
+            count += 1
+            reason = "CONVERGED"
+            previous = current
+        return count, reason
 
     def pending_validation_events(
         self,

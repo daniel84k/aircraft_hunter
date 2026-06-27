@@ -101,6 +101,51 @@ ON transit_candidates (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_transit_candidates_status
 ON transit_candidates (status);
 
+CREATE TABLE IF NOT EXISTS radar_events (
+    id BIGSERIAL PRIMARY KEY,
+    prediction_run_id BIGINT REFERENCES prediction_runs(id),
+    transit_candidate_id BIGINT REFERENCES transit_candidates(id),
+    icao TEXT NOT NULL,
+    callsign TEXT,
+    aircraft_type TEXT,
+    body TEXT NOT NULL,
+    transit_time_utc TIMESTAMPTZ NOT NULL,
+    time_to_transit_seconds INTEGER NOT NULL,
+    observer_lat DOUBLE PRECISION NOT NULL,
+    observer_lon DOUBLE PRECISION NOT NULL,
+    observer_distance_km DOUBLE PRECISION NOT NULL,
+    angular_separation_deg DOUBLE PRECISION NOT NULL,
+    body_radius_deg DOUBLE PRECISION NOT NULL,
+    offset_body_diameters DOUBLE PRECISION NOT NULL,
+    home_offset_body_diameters DOUBLE PRECISION,
+    best_grid_offset_body_diameters DOUBLE PRECISION,
+    grid_points_checked INTEGER NOT NULL DEFAULT 0,
+    selected_from_home BOOLEAN NOT NULL DEFAULT false,
+    reachable_now BOOLEAN NOT NULL DEFAULT false,
+    score DOUBLE PRECISION NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    stability_score DOUBLE PRECISION NOT NULL,
+    aircraft_altitude_ft DOUBLE PRECISION,
+    aircraft_range_km DOUBLE PRECISION,
+    aircraft_track_deg DOUBLE PRECISION,
+    aircraft_ground_speed_kt DOUBLE PRECISION,
+    aircraft_vertical_rate_fpm DOUBLE PRECISION,
+    body_azimuth_deg DOUBLE PRECISION,
+    body_elevation_deg DOUBLE PRECISION,
+    alert_status TEXT,
+    alert_rejection_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_radar_events_created_at
+ON radar_events (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_radar_events_transit_time
+ON radar_events (transit_time_utc);
+
+CREATE INDEX IF NOT EXISTS idx_radar_events_aircraft_body_time
+ON radar_events (icao, body, transit_time_utc DESC);
+
 CREATE INDEX IF NOT EXISTS idx_prediction_runs_started_at
 ON prediction_runs (started_at DESC);
 

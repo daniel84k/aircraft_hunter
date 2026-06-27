@@ -41,7 +41,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The compose file starts `app`, `ui`, `adsb-feeder`, and `postgres`. `adsb-feeder` is the only container that calls ADSB.fi; `app` reads the compatible local endpoint at `http://adsb-feeder:9988`. The web dashboard runs in the separate `ui` container so slow dashboard queries do not share the prediction worker process. Logs are written under `./logs`.
+The compose file starts `radar`, `alert-service`, `ui`, `adsb-feeder`, and `postgres`. `adsb-feeder` is the only container that calls ADSB.fi; `radar` reads the compatible local endpoint at `http://adsb-feeder:9988`, calculates geometry, and stores independent radar opportunities in `radar_events`. The same radar cycle also stores `transit_candidates` for the legacy alert decision pipeline. `alert-service` reads those alert candidates from PostgreSQL and handles notification decisions and Telegram delivery. The web dashboard runs in the separate `ui` container so slow dashboard queries do not share the prediction worker process. Logs are written under `./logs`.
 
 The feeder exposes:
 
@@ -65,7 +65,7 @@ It shows observation/run/candidate/alert counts, recent prediction runs, rejecti
 
 ## Project Structure
 
-`src/adsb_client.py` fetches and validates ADS-B records. `src/stability.py` scores flight stability using altitude, vertical rate, track change, and speed change. `src/prediction.py` fits recent ADS-B motion and extrapolates the aircraft path. `src/ephemeris.py` calculates Moon and Sun positions with Skyfield. `src/transit_detector.py` finds angular alignments. `src/observer_solver.py` searches for a bounded observation point. `src/scoring.py` ranks candidates. `src/storage.py` writes observations, prediction runs, candidates, and alerts to PostgreSQL.
+`src/adsb_client.py` fetches and validates ADS-B records. `src/stability.py` scores flight stability using altitude, vertical rate, track change, and speed change. `src/prediction.py` fits recent ADS-B motion and extrapolates the aircraft path. `src/ephemeris.py` calculates Moon and Sun positions with Skyfield. `src/transit_detector.py` finds angular alignments. `src/observer_solver.py` searches for a bounded observation point. `src/scoring.py` ranks candidates. `src/main.py` runs the radar worker. `src/alert_service.py` runs the alert worker. `src/storage.py` writes observations, prediction runs, candidates, alerts, and alert-service queries to PostgreSQL.
 
 ## Scoring
 

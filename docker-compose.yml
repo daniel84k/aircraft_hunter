@@ -16,17 +16,34 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  radar:
     build: .
+    command: ["python", "src/main.py"]
     env_file:
       - .env
     environment:
       ADSBFI_BASE: http://adsb-feeder:9988
       UI_ENABLED: "false"
+      ALERT_NOTIFICATIONS_ENABLED: "false"
     depends_on:
       postgres:
         condition: service_healthy
       adsb-feeder:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  alert-service:
+    build: .
+    command: ["python", "src/alert_service.py"]
+    env_file:
+      - .env
+    environment:
+      UI_ENABLED: "false"
+      ALERT_NOTIFICATIONS_ENABLED: "true"
+    depends_on:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     volumes:

@@ -508,6 +508,7 @@ def run_cycle(
     alert_count = 0
     saved_count = 0
     all_candidates: list[TransitCandidate] = []
+    radar_event_ids_by_candidate: dict[int, int] = {}
     ephemeris_cache = {}
     geometry_inputs = []
     airport_matches = {}
@@ -798,13 +799,23 @@ def run_cycle(
                         "aircraft=%s callsign=%s reason=NO_BODY_STATES",
                         ac.icao,
                         ac.callsign or "-",
-                    )
+            )
             for raw in sorted(raw_candidates, key=lambda item: item[3])[:MAX_RAW_CANDIDATES_TO_SOLVE]:
                 candidate = build_candidate(raw, settings, stable_score)
+                candidate_lead_time = int((candidate.transit_time_utc - cycle_started).total_seconds())
+                radar_event_id = storage.insert_radar_event(
+                    run_id,
+                    candidate,
+                    reachable_now=(
+                        candidate_lead_time >= 0
+                        and candidate.observer_distance_km <= reachable_relocation_km(settings, candidate_lead_time)
+                    ),
+                )
                 candidate = classify_candidate(candidate, settings, stable_score >= 0.65)
                 candidate = suppress_airport_traffic_alert(candidate, airport_matches.get(ac.icao))
                 if candidate.rejection_reason == "OBSERVER_POINT_TOO_FAR":
                     candidate.status = "REJECTED"
+                radar_event_ids_by_candidate[id(candidate)] = radar_event_id
                 all_candidates.append(candidate)
                 if settings.run_mode == "debug":
                     cycle_log(
@@ -831,7 +842,10 @@ def run_cycle(
         for candidate in all_candidates[:50]:
             alert_type = "CONSOLE"
             is_better_alert = False
-            eligible_for_notification = candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}
+            eligible_for_notification = (
+                settings.alert_notifications_enabled
+                and candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}
+            )
             convergence_enabled = (
                 settings.notification_require_convergence and convergence_tracker is not None
             )
@@ -894,6 +908,9 @@ def run_cycle(
                         candidate.status = "REJECTED"
                         candidate.rejection_reason = "DUPLICATE_ALERT"
             candidate_id = storage.insert_candidate(run_id, candidate)
+            radar_event_id = radar_event_ids_by_candidate.get(id(candidate))
+            if radar_event_id is not None:
+                storage.link_radar_event_candidate(radar_event_id, candidate_id, candidate)
             saved_count += 1
             trajectory_payload = trajectory_payloads.get(candidate.aircraft.icao.lower())
             if trajectory_payload:
@@ -1040,16 +1057,18 @@ def main() -> None:
     run_migrations(conn)
     storage = Storage(conn)
     client = ADSBClient(settings.adsbfi_base)
-    notifier = TelegramNotifier()
+    notifier = TelegramNotifier() if settings.alert_notifications_enabled else None
     histories: dict[str, deque[AircraftState]] = defaultdict(lambda: deque(maxlen=240))
     convergence_tracker: dict[tuple[str, str, int], CandidateConvergence] = {}
     last_data_retention_monotonic: float | None = None
     if settings.ui_enabled:
         start_ui_server(settings)
     LOG.info("Aircraft Transit Hunter started mode=%s", settings.run_mode)
-    if notifier.enabled:
+    if notifier and notifier.enabled:
         notifier.send_message("Aircraft Transit Hunter started")
         LOG.info("Telegram notifications enabled")
+    elif not settings.alert_notifications_enabled:
+        LOG.info("Telegram notifications disabled for this worker")
 
     while True:
         cycle_started_monotonic = time.monotonic()
@@ -1061,7 +1080,7 @@ def main() -> None:
                     LOG.exception("Data retention failed error=%s", exc)
                 finally:
                     last_data_retention_monotonic = time.monotonic()
-            if settings.transit_validation_enabled:
+            if settings.transit_validation_enabled and notifier:
                 send_validation_notifications(storage, notifier)
             run_cycle(settings, client, storage, histories, notifier, convergence_tracker)
         except Exception as exc:

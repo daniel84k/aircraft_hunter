@@ -53,6 +53,9 @@ class Settings:
     telegram_update_cooldown_seconds: int
     telegram_update_min_distance_improvement_km: float
     telegram_update_min_offset_improvement_ratio: float
+    alert_notifications_enabled: bool
+    alert_service_poll_interval_seconds: int
+    alert_service_candidate_lookback_seconds: int
     transit_validation_enabled: bool
     transit_validation_delay_seconds: int
     transit_validation_observation_window_seconds: int
@@ -144,6 +147,9 @@ def load_settings() -> Settings:
         telegram_update_cooldown_seconds=int(os.getenv("TELEGRAM_UPDATE_COOLDOWN_SECONDS", "180")),
         telegram_update_min_distance_improvement_km=float(os.getenv("TELEGRAM_UPDATE_MIN_DISTANCE_IMPROVEMENT_KM", "0.5")),
         telegram_update_min_offset_improvement_ratio=float(os.getenv("TELEGRAM_UPDATE_MIN_OFFSET_IMPROVEMENT_RATIO", "0.30")),
+        alert_notifications_enabled=_get_bool("ALERT_NOTIFICATIONS_ENABLED", True),
+        alert_service_poll_interval_seconds=int(os.getenv("ALERT_SERVICE_POLL_INTERVAL_SECONDS", "5")),
+        alert_service_candidate_lookback_seconds=int(os.getenv("ALERT_SERVICE_CANDIDATE_LOOKBACK_SECONDS", "900")),
         transit_validation_enabled=_get_bool("TRANSIT_VALIDATION_ENABLED", True),
         transit_validation_delay_seconds=int(os.getenv("TRANSIT_VALIDATION_DELAY_SECONDS", "45")),
         transit_validation_observation_window_seconds=int(os.getenv("TRANSIT_VALIDATION_OBSERVATION_WINDOW_SECONDS", "90")),
