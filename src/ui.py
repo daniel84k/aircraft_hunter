@@ -251,7 +251,7 @@ INDEX_HTML = """<!doctype html>
 </dialog>
 <script>
 const tabGroups = [
-  {label:'Codzienna analiza', items:[['overview','Dzisiaj','◈'],['candidates','Zdarzenia','◇'],['alerts','Alerty','◉'],['validations','Wyniki HIT/MISS','◎']]},
+  {label:'Codzienna analiza', items:[['overview','Dzisiaj','◈'],['radar','Radar','◌'],['candidates','Zdarzenia','◇'],['alerts','Alerty','◉'],['validations','Wyniki HIT/MISS','◎']]},
   {label:'Analiza szczegółowa', items:[['filters','Lejek i filtry','≋'],['geometry','Geometria','⌁'],['maptab','Mapa','⌖']]},
   {label:'Diagnostyka', collapsible:true, items:[['aircraft','Samoloty ADS-B','✈'],['runs','Cykle','↻'],['feeder','Feeder','⌁'],['logs','Logi','▤'],['config','Konfiguracja','⚙'],['export','Eksport','⇩']]}
 ];
@@ -329,7 +329,8 @@ async function refreshAll() {
       // Keep the landing view cheap; detailed tabs load log-heavy data on demand.
     } else if (requestedActive === 'maptab') {
       next.mapData = await getJson('/api/map?' + q);
-    } else if (requestedActive === 'candidates') next.events = await getJson('/api/events?' + q);
+    } else if (requestedActive === 'radar') next.radar = await getJson('/api/radar?' + q);
+    else if (requestedActive === 'candidates') next.events = await getJson('/api/events?' + q);
     else if (requestedActive === 'runs') next.runs = await getJson('/api/runs?' + q);
     else if (requestedActive === 'aircraft') next.aircraft = await getJson('/api/aircraft?' + q);
     else if (requestedActive === 'geometry') next.geometry = await getJson('/api/geometry?' + q);
@@ -352,8 +353,42 @@ async function refreshAll() {
 function renderActive() {
   if (!lastData.overview) return;
   ({overview: renderOverview, maptab: renderMapTab, candidates: renderCandidates, runs: renderRuns, aircraft: renderAircraft,
-    geometry: renderGeometry, filters: renderFilters, alerts: renderAlerts, validations: renderValidations, feeder: renderFeeder, logs: renderLogs,
+    radar: renderRadar, geometry: renderGeometry, filters: renderFilters, alerts: renderAlerts, validations: renderValidations, feeder: renderFeeder, logs: renderLogs,
     config: renderConfig, export: renderExport}[active] || renderOverview)();
+}
+function renderRadar() {
+  const data = lastData.radar || {summary: {}, items: []};
+  const s = data.summary || {};
+  const headers = [
+    {name:'Czas', fn:r=>fmt(r.created_at)},
+    {name:'Lot', fn:r=>`${esc(r.callsign || '-')} <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span>`},
+    {name:'Radar', fn:r=>`<span class="pill ${r.reachable_now ? 'good' : 'warn'}">${r.reachable_now ? 'osiągalne' : 'poza zasięgiem'}</span><div class="reason">${r.selected_from_home ? 'start z domu' : 'siatka poza domem'}</div>`},
+    {name:'Score', fn:r=>`${score(r.score)}<span class="threshold">offset ${num(r.offset_body_diameters,3)}</span>`},
+    {name:'Siatka', fn:r=>`${num(r.grid_points_checked)} punktów<br><span class="muted">${r.best_grid_offset_body_diameters==null?'brak':`best ${num(r.best_grid_offset_body_diameters,3)}`}</span>`},
+    {name:'Decyzja alertowa', fn:r=>`<span class="pill ${clsStatus(r.alert_status)}">${esc(statusLabel(r.alert_status))}</span><div class="reason">${esc(r.alert_rejection_reason || r.rejection_reason || '-')}</div>`},
+    {name:'', fn:r=>r.candidate_id ? `<button onclick="openEvent(${Number(r.candidate_id)})">Analiza alertu</button>` : '<span class="muted">-</span>'}
+  ];
+  radar.innerHTML = `<div class="metrics">
+    ${metric('Zd. RADAR', num(s.events), s.events ? 'good' : '')}
+    ${metric('Osiągalne', num(s.reachable), s.reachable ? 'warn' : '')}
+    ${metric('Powiązane', num(s.alerted), s.alerted ? 'good' : '')}
+    ${metric('Alert sent', num(s.hit), s.hit ? 'good' : '')}
+    ${metric('Odrzucone', num(s.miss), s.miss ? 'bad' : '')}
+    ${metric('Najlepszy score', s.best_score == null ? '—' : num(s.best_score, 2), Number(s.best_score || 0) >= Number(lastData.overview?.alert_min_score || 0.7) ? 'warn' : '')}
+  </div>
+  <div class="grid-2">
+    <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Radar events</h2><span class="muted">osobna warstwa geometryczna, niezależna od alertów</span></div><a href="/api/export?type=radar&${params()}">CSV</a></div>${table(headers, data.items || [], {h:720})}</div>
+    <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Interpretacja RADAR</h2><span class="muted">co widzi geometria, zanim alert przejdzie lejek</span></div></div>
+      <div class="kv">
+        <div>Eventy</div><div>${num(s.events)}</div>
+        <div>Osiągalne</div><div>${num(s.reachable)}</div>
+        <div>Wybrane z domu</div><div>${num(s.home_selected)}</div>
+        <div>Najlepszy offset siatki</div><div>${s.best_grid_offset == null ? '-' : num(s.best_grid_offset, 3)}</div>
+        <div>Alertowano</div><div>${num(s.alerted)}</div>
+        <div>Średni score</div><div>${s.avg_score == null ? '-' : num(s.avg_score, 2)}</div>
+      </div>
+    </div>
+  </div>`;
 }
 function renderOverview() {
   const o = lastData.overview;
@@ -378,6 +413,7 @@ function renderOverview() {
     ${metric('Stan systemu',systemOk?'AKTYWNY':'NIEAKTUALNY',systemOk?'good':'bad')}
     ${metric('Najlepszy score',events.length?num(events[0].score,2):'—',events.length&&Number(events[0].score)>=Number(o.alert_min_score)?'warn':'')}
     ${metric('Blisko alertu',num(t.near_alert_events),t.near_alert_events?'warn':'')}
+    ${metric('Radar eventy',num(t.radar_events),t.radar_events?'good':'')}
     ${metric('Alerty',num(t.alerts),t.alerts?'good':'')}
     ${metric('Cykle z geometrią',num(t.geometry_cycles))}
     ${metric('Przeanalizowane loty',num(t.aircraft_analyzed))}
@@ -712,6 +748,8 @@ def _handler_factory(database_url: str, log_dir: str):
                     self._send_json({"items": _runs(database_url, params)})
                 elif parsed.path == "/api/candidates":
                     self._send_json({"items": _candidates(database_url, params)})
+                elif parsed.path == "/api/radar":
+                    self._send_json(_radar(database_url, params))
                 elif parsed.path == "/api/events":
                     self._send_json(_events(database_url, params))
                 elif parsed.path == "/api/event-detail":
@@ -834,6 +872,7 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
     totals = _query(database_url, """
         SELECT
           (SELECT count(*) FROM transit_candidates WHERE created_at >= %s AND created_at <= %s)::int AS candidates,
+          (SELECT count(*) FROM radar_events WHERE created_at >= %s AND created_at <= %s)::int AS radar_events,
           (SELECT count(*) FROM alerts WHERE printed_at >= %s AND printed_at <= %s)::int AS alerts,
           COALESCE((SELECT sum(aircraft_count_analyzed) FROM prediction_runs WHERE started_at >= %s AND started_at <= %s), 0)::int AS aircraft_analyzed,
           (SELECT count(DISTINCT prediction_run_id)::int FROM transit_candidates WHERE created_at >= %s AND created_at <= %s) AS geometry_cycles,
@@ -843,7 +882,7 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
              WHERE created_at >= %s AND created_at <= %s AND score >= %s
              GROUP BY lower(icao), lower(body)
           ) near_alerts) AS near_alert_events
-    """, (start, end, start, end, start, end, start, end, start, end, alert_min_score))[0]
+    """, (start, end, start, end, start, end, start, end, start, end, start, end, alert_min_score))[0]
     run_trend = _query(database_url, """
         SELECT date_bin(%s::interval, started_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket,
                sum(aircraft_count_total)::int AS aircraft_count_total,
@@ -1309,6 +1348,46 @@ def _candidates(database_url: str, params: dict, limit: int = 150) -> list[dict]
         ORDER BY created_at DESC
         LIMIT %s
     """, tuple(args))
+
+
+def _radar(database_url: str, params: dict, limit: int = 200) -> dict:
+    start, end = _window(params)
+    q = _search(params)
+    where_q = "AND (lower(icao) LIKE %s OR lower(COALESCE(callsign,'')) LIKE %s)" if q else ""
+    args: list = [start, end]
+    if q:
+        args.extend([f"%{q}%", f"%{q}%"])
+    args.append(limit)
+    items = _query(database_url, f"""
+        SELECT id, created_at, transit_time_utc, icao, callsign, aircraft_type, body,
+               score, confidence, offset_body_diameters, observer_distance_km,
+               reachable_now, home_offset_body_diameters, best_grid_offset_body_diameters,
+               grid_points_checked, selected_from_home, alert_status, alert_rejection_reason,
+               transit_candidate_id, observer_lat, observer_lon,
+               aircraft_altitude_ft, aircraft_range_km, aircraft_track_deg,
+               aircraft_ground_speed_kt, aircraft_vertical_rate_fpm,
+               body_azimuth_deg, body_elevation_deg
+        FROM radar_events
+        WHERE created_at >= %s AND created_at <= %s {where_q}
+        ORDER BY created_at DESC
+        LIMIT %s
+    """, tuple(args))
+    avg_score = sum(float(item.get("score") or 0.0) for item in items) / len(items) if items else None
+    summary = {
+        "events": len(items),
+        "reachable": sum(1 for item in items if item.get("reachable_now")),
+        "home_selected": sum(1 for item in items if item.get("selected_from_home")),
+        "alerted": sum(1 for item in items if item.get("transit_candidate_id")),
+        "hit": sum(1 for item in items if item.get("alert_status") == "ALERT_SENT"),
+        "miss": sum(1 for item in items if item.get("alert_status") == "REJECTED"),
+        "best_score": max((float(item.get("score") or 0.0) for item in items), default=None),
+        "avg_score": avg_score,
+        "best_grid_offset": min(
+            (float(item["best_grid_offset_body_diameters"]) for item in items if item.get("best_grid_offset_body_diameters") is not None),
+            default=None,
+        ),
+    }
+    return {"items": items, "summary": summary}
 
 
 def _events(database_url: str, params: dict, limit: int = 300) -> dict:
@@ -1893,6 +1972,8 @@ def _export(database_url: str, log_dir: str, params: dict) -> list[dict]:
         return _runs(database_url, params, limit=2000)
     if typ == "aircraft":
         return _aircraft(database_url, params)
+    if typ == "radar":
+        return _radar(database_url, params, limit=2000)["items"]
     if typ == "geometry":
         return _geometry(log_dir, params)["items"]
     if typ == "validations":

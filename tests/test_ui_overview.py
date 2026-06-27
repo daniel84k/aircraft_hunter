@@ -53,6 +53,7 @@ def test_overview_exposes_operational_analysis(monkeypatch) -> None:
 
 def test_dashboard_navigation_prioritizes_analysis() -> None:
     assert "Codzienna analiza" in ui.INDEX_HTML
+    assert "Radar" in ui.INDEX_HTML
     assert "Najlepsze zdarzenia" in ui.INDEX_HTML
     assert "Gdzie odpadają kandydaci" in ui.INDEX_HTML
     assert "collapsible:true" in ui.INDEX_HTML
@@ -134,6 +135,53 @@ def test_alerts_expose_travel_margin_and_validation(monkeypatch) -> None:
     }
     assert result["items"][0]["travel_seconds"] == 112.5
     assert result["items"][0]["preparation_margin_seconds"] == 96.5
+
+
+def test_radar_endpoint_exposes_independent_geometry(monkeypatch) -> None:
+    start = datetime(2026, 6, 23, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(ui, "_window", lambda params: (start, start + timedelta(hours=1)))
+    monkeypatch.setattr(
+        ui,
+        "_query",
+        lambda database_url, sql, params=(): [{
+            "id": 1,
+            "created_at": start,
+            "transit_time_utc": start + timedelta(minutes=5),
+            "icao": "abc123",
+            "callsign": "LOT123",
+            "aircraft_type": "A320",
+            "body": "Moon",
+            "score": 0.91,
+            "confidence": 0.88,
+            "offset_body_diameters": 0.19,
+            "observer_distance_km": 1.2,
+            "reachable_now": True,
+            "home_offset_body_diameters": 0.4,
+            "best_grid_offset_body_diameters": 0.19,
+            "grid_points_checked": 145,
+            "selected_from_home": False,
+            "alert_status": "REJECTED",
+            "alert_rejection_reason": "LOW_SCORE",
+            "transit_candidate_id": 7,
+            "observer_lat": 52.0,
+            "observer_lon": 21.0,
+            "aircraft_altitude_ft": 30000.0,
+            "aircraft_range_km": 25.0,
+            "aircraft_track_deg": 90.0,
+            "aircraft_ground_speed_kt": 450.0,
+            "aircraft_vertical_rate_fpm": 0.0,
+            "body_azimuth_deg": 120.0,
+            "body_elevation_deg": 20.0,
+        }],
+    )
+
+    result = ui._radar("postgresql://test", {"range": ["1h"]})
+
+    assert result["summary"]["events"] == 1
+    assert result["summary"]["reachable"] == 1
+    assert result["summary"]["alerted"] == 1
+    assert result["summary"]["miss"] == 1
+    assert result["items"][0]["transit_candidate_id"] == 7
 
 
 def test_sky_track_returns_offsets_in_body_diameters(monkeypatch) -> None:
