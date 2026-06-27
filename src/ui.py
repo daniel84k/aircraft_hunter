@@ -376,6 +376,7 @@ function renderRadar() {
     ${metric('Odrzucone', num(s.miss), s.miss ? 'bad' : '')}
     ${metric('Najlepszy score', s.best_score == null ? '—' : num(s.best_score, 2), Number(s.best_score || 0) >= Number(lastData.overview?.alert_min_score || 0.7) ? 'warn' : '')}
   </div>
+  <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Trend RADAR</h2><span class="muted">liczba zdarzeń geometrycznych w czasie</span></div><span class="muted">okno: ${esc(range.options[range.selectedIndex]?.text || range.value)}</span></div>${bars((s.trend || []), 'count')}</div>
   <div class="grid-2">
     <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Radar events</h2><span class="muted">osobna warstwa geometryczna, niezależna od alertów</span></div><a href="/api/export?type=radar&${params()}">CSV</a></div>${table(headers, data.items || [], {h:720})}</div>
     <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Interpretacja RADAR</h2><span class="muted">co widzi geometria, zanim alert przejdzie lejek</span></div></div>
@@ -420,7 +421,7 @@ function renderOverview() {
   </div>
   <div class="grid-2">
     <div class="panel"><div class="panel-head"><h2>Najlepsze zdarzenia</h2><button onclick="showTab('candidates')">wszystkie zdarzenia</button></div>${table(eventHeaders,events,{h:480})}</div>
-    <div class="panel"><div class="panel-head"><h2>Gdzie odpadają kandydaci</h2><button onclick="showTab('filters')">pełny lejek</button></div>${table([{name:'Powód',fn:r=>reasonLabel(r.rejection_reason)},{name:'Liczba',fn:r=>num(r.count)}],o.rejection_summary||[],{h:300})}<div class="panel-head" style="margin-top:20px"><h2>Aktywność analizy</h2><span class="muted">kandydaci w czasie</span></div>${bars(o.run_trend||[],'candidate_count')}</div>
+    <div class="panel"><div class="panel-head"><h2>Gdzie odpadają kandydaci</h2><button onclick="showTab('filters')">pełny lejek</button></div>${table([{name:'Powód',fn:r=>reasonLabel(r.rejection_reason)},{name:'Liczba',fn:r=>num(r.count)}],o.rejection_summary||[],{h:300})}<div class="panel-head" style="margin-top:20px"><h2>Aktywność analizy</h2><span class="muted">kandydaci w czasie</span></div>${bars(o.run_trend||[],'candidate_count')}<div class="panel-head" style="margin-top:20px"><h2>Trend RADAR</h2><span class="muted">radar_events w czasie</span></div>${bars(o.radar_trend||[],'count')}</div>
   </div>`;
 }
 function renderMapTab() {
@@ -894,6 +895,14 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
         GROUP BY bucket
         ORDER BY bucket
     """, (trend_bucket, start, end))
+    radar_trend = _query(database_url, """
+        SELECT date_bin(%s::interval, created_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket,
+               count(*)::int AS count
+        FROM radar_events
+        WHERE created_at >= %s AND created_at <= %s
+        GROUP BY bucket
+        ORDER BY bucket
+    """, (trend_bucket, start, end))
     validation_data = _validations(database_url, params, limit=12)
     top_events = _query(database_url, """
         WITH event_stats AS (
@@ -962,6 +971,7 @@ def _overview(database_url: str, log_dir: str, params: dict) -> dict:
     return {
         "totals": totals,
         "run_trend": run_trend,
+        "radar_trend": radar_trend,
         "top_events": top_events,
         "rejection_summary": rejection_summary,
         "latest_run": latest_run[0] if latest_run else None,

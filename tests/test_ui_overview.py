@@ -24,6 +24,8 @@ def test_overview_exposes_operational_analysis(monkeypatch) -> None:
                 "near_alert_events": 1,
             }]
         if "date_bin" in sql:
+            if "radar_events" in sql:
+                return [{"count": 6}]
             return [{"candidate_count": 8}]
         if "WITH event_stats" in sql:
             return [{
@@ -46,6 +48,7 @@ def test_overview_exposes_operational_analysis(monkeypatch) -> None:
 
     assert result["alert_min_score"] == 0.7
     assert result["totals"]["geometry_cycles"] == 12
+    assert result["radar_trend"][0]["count"] == 6
     assert result["top_events"][0]["qualifying_cycles"] == 1
     assert result["rejection_summary"][0]["rejection_reason"] == "LOW_SCORE"
     assert result["latest_run"]["finished_at"] == now
@@ -57,6 +60,7 @@ def test_dashboard_navigation_prioritizes_analysis() -> None:
     assert "Najlepsze zdarzenia" in ui.INDEX_HTML
     assert "Gdzie odpadają kandydaci" in ui.INDEX_HTML
     assert "collapsible:true" in ui.INDEX_HTML
+    assert "Trend RADAR" in ui.INDEX_HTML
 
 
 def test_dashboard_filter_funnel_is_clickable() -> None:
