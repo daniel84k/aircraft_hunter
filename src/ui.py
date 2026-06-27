@@ -230,6 +230,7 @@ INDEX_HTML = """<!doctype html>
     </header>
     <div class="content">
       <section id="overview" class="tab active"></section>
+      <section id="radar" class="tab"></section>
       <section id="maptab" class="tab"></section>
       <section id="candidates" class="tab"></section>
       <section id="runs" class="tab"></section>

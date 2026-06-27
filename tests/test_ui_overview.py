@@ -61,6 +61,7 @@ def test_dashboard_navigation_prioritizes_analysis() -> None:
     assert "Gdzie odpadają kandydaci" in ui.INDEX_HTML
     assert "collapsible:true" in ui.INDEX_HTML
     assert "Trend RADAR" in ui.INDEX_HTML
+    assert 'section id="radar"' in ui.INDEX_HTML
 
 
 def test_dashboard_filter_funnel_is_clickable() -> None:
