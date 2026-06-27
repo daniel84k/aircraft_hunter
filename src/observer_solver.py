@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 from geo import destination_point, haversine_distance_km, topocentric_aircraft_position, angular_separation_deg
@@ -16,6 +16,10 @@ class ObserverSolution:
     confidence: float
     angular_separation_deg: float
     offset_body_diameters: float
+    home_offset_body_diameters: float | None = None
+    best_grid_offset_body_diameters: float | None = None
+    grid_points_checked: int = 0
+    selected_from_home: bool = False
     reason: str | None = None
 
 
@@ -34,26 +38,32 @@ def solve_observer_point(
     body: CelestialBodyState,
     max_relocation_km: float,
 ) -> ObserverSolution:
-    best = _solution_at(user_lat, user_lon, user_lat, user_lon, aircraft_point, body, 0.70)
-    if best.offset_body_diameters <= 0.25:
-        return best
+    home = _solution_at(user_lat, user_lon, user_lat, user_lon, aircraft_point, body, 0.70)
+    best = home
+    checked = 1
 
     for lat, lon, _radius, _bearing in observer_search_grid(user_lat, user_lon, max_relocation_km)[1:]:
+        checked += 1
         candidate = _solution_at(user_lat, user_lon, lat, lon, aircraft_point, body, 0.82)
         if candidate.angular_separation_deg < best.angular_separation_deg:
             best = candidate
 
-    if best.distance_km > max_relocation_km:
-        return ObserverSolution(
-            user_lat,
-            user_lon,
-            0.0,
-            0.30,
-            best.angular_separation_deg,
-            best.offset_body_diameters,
-            "OBSERVER_POINT_TOO_FAR",
+    if best.distance_km > max_relocation_km + 0.02:
+        return replace(
+            home,
+            home_offset_body_diameters=home.offset_body_diameters,
+            best_grid_offset_body_diameters=best.offset_body_diameters,
+            grid_points_checked=checked,
+            selected_from_home=True,
+            reason="OBSERVER_POINT_TOO_FAR",
         )
-    return best
+    return replace(
+        best,
+        home_offset_body_diameters=home.offset_body_diameters,
+        best_grid_offset_body_diameters=best.offset_body_diameters,
+        grid_points_checked=checked,
+        selected_from_home=best.distance_km <= 1e-6,
+    )
 
 
 def observer_search_grid(

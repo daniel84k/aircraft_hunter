@@ -91,3 +91,7 @@ class TransitCandidate:
     aircraft_ground_speed_kt: float | None = None
     aircraft_vertical_rate_fpm: float | None = None
     body_azimuth_deg: float | None = None
+    observer_home_offset_body_diameters: float | None = None
+    observer_best_grid_offset_body_diameters: float | None = None
+    observer_grid_points_checked: int = 0
+    observer_selected_from_home: bool = False

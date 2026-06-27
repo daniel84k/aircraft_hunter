@@ -132,10 +132,12 @@ class Storage:
                     observer_distance_score, aircraft_altitude_ft, aircraft_range_km,
                     aircraft_track_deg, aircraft_ground_speed_kt, aircraft_vertical_rate_fpm,
                     body_azimuth_deg, body_elevation_deg, status, rejection_reason, alert_sent,
-                    alerted_at, dedupe_key
+                    alerted_at, dedupe_key, observer_home_offset_body_diameters,
+                    observer_best_grid_offset_body_diameters, observer_grid_points_checked,
+                    observer_selected_from_home
                 ) VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
                 ) RETURNING id
                 """,
                 (
@@ -175,6 +177,10 @@ class Storage:
                     candidate.status == "ALERT_SENT",
                     None,
                     candidate.dedupe_key,
+                    candidate.observer_home_offset_body_diameters,
+                    candidate.observer_best_grid_offset_body_diameters,
+                    candidate.observer_grid_points_checked,
+                    candidate.observer_selected_from_home,
                 ),
             )
             candidate_id = cur.fetchone()[0]

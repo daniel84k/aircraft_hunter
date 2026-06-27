@@ -435,7 +435,7 @@ function renderEventDetail(data){
     <div class="panel"><div class="panel-head"><h2>Czy samolot przeciął tarczę?</h2><span class="muted">odległość od środka w średnicach tarczy</span></div>${transitReadout(data)}${skyChart(data.predicted_sky||[],data.actual_sky||[],c.body)}<div class="chart-legend"><span><i class="legend-line" style="background:#8b7cff"></i>prognoza</span><span><i class="legend-line" style="background:#22c55e"></i>pomiary ADS-B</span><span>duży okrąg: widoczna tarcza</span></div><div class="muted" style="margin-top:8px;line-height:1.5">Wykres pokazuje widok przez aparat: lewo/prawo i góra/dół. Krawędź tarczy leży 0,5 średnicy od jej środka. Znacznik przy brzegu wykresu oznacza, że samolot minął ją o więcej niż 2 średnice.</div></div>
   </div><div class="grid-2">
     <div class="panel"><div class="panel-head"><h2>Score w kolejnych cyklach</h2><span class="muted">linia przerywana: próg 0,70</span></div>${scoreTimeline(data.event_series||[])}</div>
-    <div class="panel"><h2>Składniki najlepszej oceny</h2><div class="kv"><div>Stabilność</div><div>${num(c.stability_score,2)}</div><div>Wyrównanie</div><div>${num(c.alignment_score,2)}</div><div>Wysokość</div><div>${num(c.altitude_score,2)}</div><div>Elewacja obiektu</div><div>${num(c.body_elevation_score,2)}</div><div>Zasięg samolotu</div><div>${num(c.aircraft_range_score,2)}</div><div>Czas na reakcję</div><div>${num(c.lead_time_score,2)}</div><div>Pozycja obserwatora</div><div>${num(c.observer_distance_score,2)}</div><div>Decyzja</div><div>${statusLabel(c.status)} — ${notificationReason(c)}</div></div></div>
+    <div class="panel"><h2>Składniki najlepszej oceny</h2><div class="kv"><div>Stabilność</div><div>${num(c.stability_score,2)}</div><div>Wyrównanie</div><div>${num(c.alignment_score,2)}</div><div>Wysokość</div><div>${num(c.altitude_score,2)}</div><div>Elewacja obiektu</div><div>${num(c.body_elevation_score,2)}</div><div>Zasięg samolotu</div><div>${num(c.aircraft_range_score,2)}</div><div>Czas na reakcję</div><div>${num(c.lead_time_score,2)}</div><div>Pozycja obserwatora</div><div>${num(c.observer_distance_score,2)}</div><div>Offset w domu</div><div>${c.observer_home_offset_body_diameters==null?'-':num(c.observer_home_offset_body_diameters,3)}</div><div>Najlepszy offset siatki</div><div>${c.observer_best_grid_offset_body_diameters==null?'-':num(c.observer_best_grid_offset_body_diameters,3)}</div><div>Punkty siatki</div><div>${num(c.observer_grid_points_checked||0)}</div><div>Wybrano dom</div><div>${c.observer_selected_from_home?'tak':'nie'}</div><div>Decyzja</div><div>${statusLabel(c.status)} — ${notificationReason(c)}</div></div></div>
   </div>`;
   setTimeout(()=>renderEventGroundMap(data),0);
 }
@@ -1023,6 +1023,10 @@ def _event_detail(database_url: str, candidate_id: int) -> dict:
                c.stability_score, c.alignment_score, c.altitude_score,
                c.body_elevation_score, c.aircraft_range_score, c.lead_time_score,
                c.observer_distance_score,
+               c.observer_home_offset_body_diameters,
+               c.observer_best_grid_offset_body_diameters,
+               c.observer_grid_points_checked,
+               c.observer_selected_from_home,
                snapshot.id AS snapshot_id, snapshot.source_observed_at,
                snapshot.path_start_utc, snapshot.path_end_utc,
                snapshot.sample_interval_seconds, snapshot.point_count, snapshot.points,
@@ -1297,7 +1301,9 @@ def _candidates(database_url: str, params: dict, limit: int = 150) -> list[dict]
                rejection_reason, score, offset_body_diameters, observer_distance_km, google_maps_url,
                stability_score, alignment_score, altitude_score, body_elevation_score,
                aircraft_range_score, lead_time_score, observer_distance_score,
-               aircraft_altitude_ft, aircraft_range_km, aircraft_track_deg, body_azimuth_deg, body_elevation_deg
+               aircraft_altitude_ft, aircraft_range_km, aircraft_track_deg, body_azimuth_deg, body_elevation_deg,
+               observer_home_offset_body_diameters, observer_best_grid_offset_body_diameters,
+               observer_grid_points_checked, observer_selected_from_home
         FROM transit_candidates
         WHERE created_at >= %s AND created_at <= %s {where_q}
         ORDER BY created_at DESC

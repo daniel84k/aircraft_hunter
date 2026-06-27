@@ -322,6 +322,10 @@ def build_candidate(raw, settings: Settings, stability: float) -> TransitCandida
         aircraft_ground_speed_kt=aircraft.ground_speed_kt,
         aircraft_vertical_rate_fpm=aircraft.vertical_rate_fpm,
         body_azimuth_deg=body.azimuth_deg,
+        observer_home_offset_body_diameters=solution.home_offset_body_diameters,
+        observer_best_grid_offset_body_diameters=solution.best_grid_offset_body_diameters,
+        observer_grid_points_checked=solution.grid_points_checked,
+        observer_selected_from_home=solution.selected_from_home,
     )
 
 

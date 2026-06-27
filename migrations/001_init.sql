@@ -64,6 +64,10 @@ CREATE TABLE IF NOT EXISTS transit_candidates (
     aircraft_vertical_rate_fpm DOUBLE PRECISION,
     body_azimuth_deg DOUBLE PRECISION,
     body_elevation_deg DOUBLE PRECISION,
+    observer_home_offset_body_diameters DOUBLE PRECISION,
+    observer_best_grid_offset_body_diameters DOUBLE PRECISION,
+    observer_grid_points_checked INTEGER NOT NULL DEFAULT 0,
+    observer_selected_from_home BOOLEAN NOT NULL DEFAULT false,
     status TEXT NOT NULL,
     rejection_reason TEXT,
     alert_sent BOOLEAN NOT NULL DEFAULT false,
@@ -149,6 +153,18 @@ ADD COLUMN IF NOT EXISTS horizontal_offset_body_diameters DOUBLE PRECISION;
 
 ALTER TABLE transit_validations
 ALTER COLUMN source_alert_id DROP NOT NULL;
+
+ALTER TABLE transit_candidates
+ADD COLUMN IF NOT EXISTS observer_home_offset_body_diameters DOUBLE PRECISION;
+
+ALTER TABLE transit_candidates
+ADD COLUMN IF NOT EXISTS observer_best_grid_offset_body_diameters DOUBLE PRECISION;
+
+ALTER TABLE transit_candidates
+ADD COLUMN IF NOT EXISTS observer_grid_points_checked INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE transit_candidates
+ADD COLUMN IF NOT EXISTS observer_selected_from_home BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS event_trajectory_snapshots (
     id BIGSERIAL PRIMARY KEY,
