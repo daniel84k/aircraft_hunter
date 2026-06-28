@@ -967,7 +967,9 @@ def run_cycle(
                         required_cycles,
                         convergence_reason,
                     )
-            if eligible_for_notification and not notification_ready:
+            if not eligible_for_notification:
+                continue
+            if not notification_ready:
                 continue
             if candidate.status in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
                 if notification_event_seen(
