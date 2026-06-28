@@ -314,7 +314,7 @@ const bodyLabel = value => String(value||'').toLowerCase()==='sun' ? 'Słońce' 
 const statusLabel = value => ({ALERT_SENT:'Alert wysłany',ALERT_READY:'Gotowy do alertu',OBSERVATION_CANDIDATE:'Obserwowany',REJECTED:'Odrzucony',CANDIDATE_STORED:'Zapisany'}[value]||value||'-');
 const reasonLabel = value => ({LOW_SCORE:'Za niski score',TOO_EARLY_FOR_ALERT:'Za wcześnie lub brak potwierdzenia w kolejnym cyklu',TOO_LATE:'Za mało czasu na reakcję',AIRPORT_TRAFFIC:'Ruch lotniskowy',AIRPORT_STRICT:'Ruch lotniskowy',LOW_ALTITUDE:'Za mała wysokość',UNSTABLE_FLIGHT:'Niestabilny tor lotu',FIRST_OBSERVATION:'Pierwszy cykl kwalifikujący — brak potwierdzenia',ONLY_1_CONVERGED_CYCLE:'Tylko 1 stabilny cykl',CYCLE_GAP:'Przerwa między cyklami przerwała potwierdzenie',TRANSIT_TIME_MOVED:'Czas tranzytu przesunął się za mocno',OBSERVER_POINT_MOVED:'Punkt obserwacji przesunął się za mocno',OFFSET_WORSENED:'Offset pogorszył się za mocno',SAME_CYCLE_DUPLICATE:'Duplikat w tym samym cyklu','-':'Brak dodatkowej przyczyny'}[value]||String(value||'-').replaceAll('_',' ').toLowerCase());
 const notificationReason = row => row.notification_block_reason ? reasonLabel(row.notification_block_reason) : reasonLabel(row.rejection_reason);
-const alertPhaseLabel = value => ({EARLY:'Wczesny',CONFIRMED:'Potwierdzony',BETTER:'Lepszy punkt',CONSOLE:'Alert'}[String(value||'').toUpperCase()]||value||'Alert');
+const alertPhaseLabel = value => ({EARLY:'Wczesny',CONFIRMED:'Potwierdzony',LAST_CHANCE:'Ostatni moment',BETTER:'Lepszy punkt',CONSOLE:'Alert'}[String(value||'').toUpperCase()]||value||'Alert');
 const durationLabel = value => {if(value===null||value===undefined||Number.isNaN(Number(value)))return '—';const raw=Math.round(Number(value)),sign=raw<0?'-':'',seconds=Math.abs(raw),minutes=Math.floor(seconds/60),rest=seconds%60;return minutes?`${sign}${minutes} min ${rest?rest+' s':''}`.trim():`${sign}${rest} s`;};
 function relativeTime(value) { const seconds=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/1000)); return seconds<60?`${seconds} s temu`:seconds<3600?`${Math.round(seconds/60)} min temu`:`${Math.round(seconds/3600)} godz. temu`; }
 async function refreshAll() {
@@ -1565,6 +1565,7 @@ def _alerts(database_url: str, params: dict) -> dict:
         "events": len(event_keys),
         "early": sum(1 for item in items if item.get("alert_type") == "EARLY"),
         "confirmed": sum(1 for item in items if item.get("alert_type") == "CONFIRMED"),
+        "last_chance": sum(1 for item in items if item.get("alert_type") == "LAST_CHANCE"),
         "better": sum(1 for item in items if item.get("alert_type") == "BETTER"),
         "hit": sum(1 for result in validated_events.values() if result == "HIT"),
         "miss": sum(1 for result in validated_events.values() if result == "MISS"),

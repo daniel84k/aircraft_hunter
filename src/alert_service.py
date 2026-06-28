@@ -74,7 +74,7 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
             )
             continue
 
-        alert_type = "EARLY" if notification_phase == "EARLY" else "CONFIRMED"
+        alert_type = notification_phase
         is_better_alert = False
         if notification_phase == "EARLY":
             duplicate_event = storage.alert_event_exists(

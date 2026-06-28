@@ -48,6 +48,7 @@ class Settings:
     notification_max_time_shift_seconds: float
     notification_max_observer_shift_km: float
     notification_max_offset_worsening_diameters: float
+    last_chance_max_lead_seconds: int
     telegram_candidate_cooldown_seconds: int
     telegram_max_candidates_per_cycle: int
     telegram_update_cooldown_seconds: int
@@ -142,6 +143,7 @@ def load_settings() -> Settings:
         notification_max_time_shift_seconds=float(os.getenv("NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "5")),
         notification_max_observer_shift_km=float(os.getenv("NOTIFICATION_MAX_OBSERVER_SHIFT_KM", "0.5")),
         notification_max_offset_worsening_diameters=float(os.getenv("NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "0.05")),
+        last_chance_max_lead_seconds=int(os.getenv("LAST_CHANCE_MAX_LEAD_SECONDS", "90")),
         telegram_candidate_cooldown_seconds=int(os.getenv("TELEGRAM_CANDIDATE_COOLDOWN_SECONDS", "900")),
         telegram_max_candidates_per_cycle=int(os.getenv("TELEGRAM_MAX_CANDIDATES_PER_CYCLE", "2")),
         telegram_update_cooldown_seconds=int(os.getenv("TELEGRAM_UPDATE_COOLDOWN_SECONDS", "180")),

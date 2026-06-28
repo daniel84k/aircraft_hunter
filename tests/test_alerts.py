@@ -64,6 +64,13 @@ def test_format_alert_labels_confirmed_alert() -> None:
     assert "CONFIRMED TRANSIT ALERT" in message
 
 
+def test_format_alert_labels_last_chance_alert() -> None:
+    message = format_alert(_candidate(), phase="LAST_CHANCE")
+
+    assert "LAST CHANCE OBSERVATION ALERT" in message
+    assert "quick look now" in message
+
+
 def test_format_alert_uses_short_boundaries() -> None:
     lines = format_alert(_candidate()).splitlines()
 

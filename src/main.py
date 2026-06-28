@@ -156,9 +156,17 @@ def notification_event_seen(
     )
 
 
-def notification_sort_key(candidate: TransitCandidate) -> tuple[int, float, float, float]:
+def notification_sort_key(candidate: TransitCandidate) -> tuple[int, float, float, float, float, float, float]:
     status_rank = 0 if candidate.status == "ALERT_READY" else 1
-    return (status_rank, candidate.observer_distance_km, candidate.angular_separation_deg, -candidate.score)
+    return (
+        status_rank,
+        -candidate.score,
+        candidate.offset_body_diameters,
+        -candidate.confidence,
+        -candidate.stability_score,
+        candidate.observer_distance_km,
+        candidate.angular_separation_deg,
+    )
 
 
 def candidate_notification_phase(
@@ -179,6 +187,9 @@ def candidate_notification_phase(
         candidate.status == "ALERT_READY"
         and convergence_count >= max(1, settings.notification_consecutive_cycles)
     ):
+        lead_time = int((candidate.transit_time_utc - datetime.now(timezone.utc)).total_seconds())
+        if 0 <= lead_time <= settings.last_chance_max_lead_seconds:
+            return "LAST_CHANCE"
         return "CONFIRMED"
     early_quality = (
         candidate.score >= settings.alert_min_score
@@ -284,7 +295,7 @@ def build_candidate(raw, settings: Settings, stability: float) -> TransitCandida
         offset_body_diameters=solution.offset_body_diameters,
         stability=stability,
         altitude_ft=point.altitude_ft,
-        body_elevation_deg=body.elevation_deg,
+        body_elevation_deg=solution.body_elevation_deg if solution.body_elevation_deg is not None else body.elevation_deg,
         aircraft_range_km=point.range_km,
         lead_time_seconds=lead_time,
         observer_distance_km=solution.distance_km,
@@ -307,7 +318,7 @@ def build_candidate(raw, settings: Settings, stability: float) -> TransitCandida
         confidence=score.confidence,
         aircraft_range_km=point.range_km,
         aircraft_altitude_ft=point.altitude_ft,
-        body_elevation_deg=body.elevation_deg,
+        body_elevation_deg=solution.body_elevation_deg if solution.body_elevation_deg is not None else body.elevation_deg,
         status="CANDIDATE_STORED",
         rejection_reason=solution.reason,
         dedupe_key=key,
@@ -321,7 +332,7 @@ def build_candidate(raw, settings: Settings, stability: float) -> TransitCandida
         aircraft_track_deg=aircraft.track_deg,
         aircraft_ground_speed_kt=aircraft.ground_speed_kt,
         aircraft_vertical_rate_fpm=aircraft.vertical_rate_fpm,
-        body_azimuth_deg=body.azimuth_deg,
+        body_azimuth_deg=solution.body_azimuth_deg if solution.body_azimuth_deg is not None else body.azimuth_deg,
         observer_home_offset_body_diameters=solution.home_offset_body_diameters,
         observer_best_grid_offset_body_diameters=solution.best_grid_offset_body_diameters,
         observer_grid_points_checked=solution.grid_points_checked,
@@ -901,7 +912,7 @@ def run_cycle(
                         min_distance_improvement_km=settings.telegram_update_min_distance_improvement_km,
                         min_offset_improvement_ratio=settings.telegram_update_min_offset_improvement_ratio,
                     )
-                    alert_type = "CONFIRMED"
+                    alert_type = notification_phase
                     if duplicate_event and is_better_alert:
                         alert_type = "BETTER"
                     elif duplicate_event or storage.alert_exists(f"confirmed:{candidate.dedupe_key}"):

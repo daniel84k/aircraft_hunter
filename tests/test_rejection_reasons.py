@@ -256,17 +256,43 @@ def test_strict_airport_traffic_is_stored_without_notification() -> None:
     assert suppressed.rejection_reason == "NEAR_EPWA_APPROACH"
 
 
-def test_notification_prefers_nearest_point_for_same_event() -> None:
+def test_notification_prefers_best_quality_for_same_event() -> None:
     settings = load_settings()
     farther = _candidate(settings, score=0.8, separation=0.05, distance=1.5, body_elevation=20)
     farther.status = "ALERT_READY"
-    nearer = _candidate(settings, score=0.8, separation=0.08, distance=0.4, body_elevation=20)
+    nearer = _candidate(settings, score=0.7, separation=0.08, distance=0.4, body_elevation=20)
     nearer.status = "ALERT_READY"
 
     ordered = sorted([farther, nearer], key=notification_sort_key)
 
-    assert ordered[0] is nearer
+    assert ordered[0] is farther
     assert notification_event_key(farther) == notification_event_key(nearer)
+
+
+def test_notification_does_not_prefer_unconfirmed_candidate_over_alert_ready() -> None:
+    settings = load_settings()
+    confirmed = _candidate(settings, score=0.61, separation=0.08, distance=0.25, body_elevation=20)
+    confirmed.status = "ALERT_READY"
+    one_cycle_better_geometry = _candidate(settings, score=0.80, separation=0.002, distance=0.25, body_elevation=20)
+    one_cycle_better_geometry.status = "OBSERVATION_CANDIDATE"
+
+    ordered = sorted([one_cycle_better_geometry, confirmed], key=notification_sort_key)
+
+    assert ordered[0] is confirmed
+    assert notification_event_key(confirmed) == notification_event_key(one_cycle_better_geometry)
+
+
+def test_notification_uses_last_chance_phase_for_confirmed_short_lead() -> None:
+    settings = replace(
+        load_settings(),
+        last_chance_max_lead_seconds=90,
+        notification_consecutive_cycles=3,
+    )
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.status = "ALERT_READY"
+    candidate.transit_time_utc = datetime.now(timezone.utc) + timedelta(seconds=60)
+
+    assert candidate_notification_phase(candidate, 3, settings) == "LAST_CHANCE"
 
 
 def test_notification_event_key_uses_wide_event_window() -> None:

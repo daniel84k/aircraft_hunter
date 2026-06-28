@@ -48,6 +48,7 @@ def _settings(**overrides) -> Settings:
         notification_max_time_shift_seconds=5.0,
         notification_max_observer_shift_km=0.5,
         notification_max_offset_worsening_diameters=0.05,
+        last_chance_max_lead_seconds=90,
         telegram_candidate_cooldown_seconds=900,
         telegram_max_candidates_per_cycle=2,
         telegram_update_cooldown_seconds=180,

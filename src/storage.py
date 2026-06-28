@@ -515,9 +515,12 @@ class Storage:
                                          floor(extract(epoch from tc.transit_time_utc) / %s)
                             ORDER BY
                                 CASE WHEN tc.status = 'ALERT_READY' THEN 0 ELSE 1 END,
+                                tc.score DESC,
+                                tc.offset_body_diameters ASC,
+                                tc.confidence DESC,
+                                tc.stability_score DESC,
                                 tc.observer_distance_km ASC,
                                 tc.angular_separation_deg ASC,
-                                tc.score DESC,
                                 tc.created_at DESC
                         ) AS rank
                     FROM transit_candidates tc
@@ -542,9 +545,12 @@ class Storage:
                 WHERE rank = 1
                 ORDER BY
                     CASE WHEN status = 'ALERT_READY' THEN 0 ELSE 1 END,
+                    score DESC,
+                    offset_body_diameters ASC,
+                    confidence DESC,
+                    stability_score DESC,
                     observer_distance_km ASC,
-                    angular_separation_deg ASC,
-                    score DESC
+                    angular_separation_deg ASC
                 LIMIT %s
                 """,
                 (window, window, now, created_after, max(1, limit)),

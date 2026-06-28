@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass, replace
 from functools import lru_cache
 
+from ephemeris import get_body_state
 from geo import destination_point, haversine_distance_km, topocentric_aircraft_position, angular_separation_deg
 from models import CelestialBodyState, PredictedPoint
 
@@ -20,6 +21,8 @@ class ObserverSolution:
     best_grid_offset_body_diameters: float | None = None
     grid_points_checked: int = 0
     selected_from_home: bool = False
+    body_azimuth_deg: float | None = None
+    body_elevation_deg: float | None = None
     reason: str | None = None
 
 
@@ -116,8 +119,18 @@ def _solution_at(
     confidence: float,
 ) -> ObserverSolution:
     az, el, _rng = topocentric_aircraft_position(lat, lon, aircraft_point.lat, aircraft_point.lon, aircraft_point.altitude_ft)
-    separation = angular_separation_deg(az, el, body.azimuth_deg, body.elevation_deg)
-    offset = separation / max(1e-9, 2 * body.angular_radius_deg)
+    observer_body = get_body_state(lat, lon, aircraft_point.timestamp, body.body) or body
+    separation = angular_separation_deg(az, el, observer_body.azimuth_deg, observer_body.elevation_deg)
+    offset = separation / max(1e-9, 2 * observer_body.angular_radius_deg)
     distance = haversine_distance_km(user_lat, user_lon, lat, lon)
     confidence *= math.exp(-distance / 10)
-    return ObserverSolution(lat, lon, distance, confidence, separation, offset)
+    return ObserverSolution(
+        lat,
+        lon,
+        distance,
+        confidence,
+        separation,
+        offset,
+        body_azimuth_deg=observer_body.azimuth_deg,
+        body_elevation_deg=observer_body.elevation_deg,
+    )

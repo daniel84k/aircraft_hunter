@@ -1,6 +1,8 @@
 from geo import angular_separation_deg, destination_point, haversine_distance_km
+from models import CelestialBodyState, PredictedPoint
 import observer_solver
 from observer_solver import ObserverSolution, observer_search_grid, solve_observer_point
+from datetime import datetime, timezone
 
 
 def test_haversine_distance_warsaw_lodz() -> None:
@@ -94,3 +96,52 @@ def test_solver_does_not_use_unreachable_grid_offset_for_home(monkeypatch) -> No
     assert solution.best_grid_offset_body_diameters == 0.02
     assert solution.selected_from_home is True
     assert solution.reason == "OBSERVER_POINT_TOO_FAR"
+
+
+def test_solver_recomputes_body_position_for_observer_point(monkeypatch) -> None:
+    timestamp = datetime(2026, 6, 28, 12, 0, tzinfo=timezone.utc)
+    aircraft_point = PredictedPoint(
+        timestamp=timestamp,
+        lat=52.01,
+        lon=21.0,
+        altitude_ft=30000,
+        azimuth_deg=0.0,
+        elevation_deg=0.0,
+        range_km=10.0,
+    )
+    body_from_home = CelestialBodyState(
+        body="Sun",
+        timestamp=timestamp,
+        azimuth_deg=90.0,
+        elevation_deg=20.0,
+        angular_radius_deg=0.25,
+    )
+
+    monkeypatch.setattr(
+        observer_solver,
+        "topocentric_aircraft_position",
+        lambda *_args, **_kwargs: (10.0, 20.0, 10.0),
+    )
+    monkeypatch.setattr(
+        observer_solver,
+        "get_body_state",
+        lambda lat, lon, ts, body: CelestialBodyState(
+            body=body,
+            timestamp=ts,
+            azimuth_deg=10.0,
+            elevation_deg=20.0,
+            angular_radius_deg=0.25,
+        ),
+    )
+
+    solution = solve_observer_point(
+        52.0,
+        21.0,
+        aircraft_point=aircraft_point,
+        body=body_from_home,
+        max_relocation_km=0.0,
+    )
+
+    assert solution.angular_separation_deg < 1e-6
+    assert solution.body_azimuth_deg == 10.0
+    assert solution.body_elevation_deg == 20.0

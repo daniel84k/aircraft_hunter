@@ -50,14 +50,25 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False, phase: st
         title = "EARLY TRANSIT FORECAST"
     elif phase == "CONFIRMED":
         title = "CONFIRMED TRANSIT ALERT"
+    elif phase == "LAST_CHANCE":
+        title = "LAST CHANCE OBSERVATION ALERT"
     else:
         title = "TRANSIT ALERT" if candidate.status == "ALERT_READY" else "OBSERVATION CANDIDATE"
+    if phase == "LAST_CHANCE":
+        guidance = "Last chance   : quick look now; use current/nearby spot if travel is not realistic"
+    elif phase == "EARLY":
+        guidance = "Observation   : early heads-up; go out and watch the object area"
+    elif phase == "CONFIRMED":
+        guidance = "Observation   : confirmed geometry; use navigation if travel time allows"
+    else:
+        guidance = "Observation   : watch the object area"
     return f"""===
 {title}
 Object        : {candidate.body}
 Aircraft      : {aircraft.callsign or '-'} / {aircraft.aircraft_type or '-'} / icao {aircraft.icao}
 Transit Warsaw: {warsaw_time}
 Time to go    : {h:02d}:{m:02d}:{s:02d}
+{guidance}
 
 Go to:
 {candidate.observer_lat:.6f}, {candidate.observer_lon:.6f}
