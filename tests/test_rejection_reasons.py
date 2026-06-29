@@ -295,6 +295,19 @@ def test_notification_uses_last_chance_phase_for_confirmed_short_lead() -> None:
     assert candidate_notification_phase(candidate, 3, settings) == "LAST_CHANCE"
 
 
+def test_notification_uses_last_chance_phase_for_early_quality_short_lead() -> None:
+    settings = replace(
+        load_settings(),
+        last_chance_max_lead_seconds=90,
+        early_notification_consecutive_cycles=2,
+    )
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.status = "OBSERVATION_CANDIDATE"
+    candidate.transit_time_utc = datetime.now(timezone.utc) + timedelta(seconds=60)
+
+    assert candidate_notification_phase(candidate, 2, settings) == "LAST_CHANCE"
+
+
 def test_notification_event_key_uses_wide_event_window() -> None:
     settings = load_settings()
     first = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)

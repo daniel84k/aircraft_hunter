@@ -44,7 +44,9 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False, phase: st
     seconds = max(0, int((candidate.transit_time_utc - datetime.now(timezone.utc)).total_seconds()))
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
-    if better:
+    if better and phase == "LAST_CHANCE":
+        title = "LAST CHANCE BETTER ALERT"
+    elif better:
         title = "BETTER TRANSIT ALERT"
     elif phase == "EARLY":
         title = "EARLY TRANSIT FORECAST"

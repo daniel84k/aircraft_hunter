@@ -55,12 +55,13 @@ def test_overview_exposes_operational_analysis(monkeypatch) -> None:
 
 
 def test_dashboard_navigation_prioritizes_analysis() -> None:
-    assert "Codzienna analiza" in ui.INDEX_HTML
+    assert "Polowanie" in ui.INDEX_HTML
+    assert "Debug" in ui.INDEX_HTML
+    assert "Dzisiaj: alerty i walidacja" in ui.INDEX_HTML
+    assert "Najważniejsze alerty" in ui.INDEX_HTML
+    assert "Co sprawdzić dalej" in ui.INDEX_HTML
     assert "Radar" in ui.INDEX_HTML
-    assert "Najlepsze zdarzenia" in ui.INDEX_HTML
-    assert "Gdzie odpadają kandydaci" in ui.INDEX_HTML
     assert "collapsible:true" in ui.INDEX_HTML
-    assert "Trend RADAR" in ui.INDEX_HTML
     assert 'section id="radar"' in ui.INDEX_HTML
 
 
@@ -74,10 +75,17 @@ def test_dashboard_marks_unsent_alert_ready_as_waiting_for_confirmation() -> Non
     assert "notification_block_reason" in ui.INDEX_HTML
 
 
+def test_events_query_prefers_alerted_candidate_over_rejected_best_geometry() -> None:
+    query_text = "\n".join(str(value) for value in ui._events.__code__.co_consts)
+    assert "CASE WHEN a.id IS NOT NULL THEN 0 ELSE 1 END" in query_text
+    assert "ranked.score AS score, stats.best_score AS best_event_score" in query_text
+    assert "najlepsza geometria eventu" in ui.INDEX_HTML
+
+
 def test_alert_dashboard_focuses_on_stage_time_and_result() -> None:
-    assert "Historia powiadomień" in ui.INDEX_HTML
-    assert "Czas na reakcję" in ui.INDEX_HTML
-    assert "po dojeździe" in ui.INDEX_HTML
+    assert "Alerty: detekcja → walidacja" in ui.INDEX_HTML
+    assert "Walidacja ADS-B tego alertu" in ui.INDEX_HTML
+    assert "HIT alertów" in ui.INDEX_HTML
     assert "validation_result" in ui.INDEX_HTML
 
 
@@ -101,10 +109,10 @@ def test_alerts_expose_travel_margin_and_validation(monkeypatch) -> None:
     monkeypatch.setattr(ui, "_window", lambda params: (sent_at, sent_at))
     monkeypatch.setenv("TRAVEL_SPEED_KMH", "50")
     monkeypatch.setenv("REACH_SAFETY", "0.8")
-    monkeypatch.setattr(
-        ui,
-        "_query",
-        lambda database_url, sql, params=(): [{
+    def fake_query(database_url, sql, params=()):
+        if "FROM aircraft_observations" in sql:
+            return []
+        return [{
             "alert_id": 1,
             "alert_type": "EARLY",
             "printed_at": sent_at,
@@ -117,14 +125,17 @@ def test_alerts_expose_travel_margin_and_validation(monkeypatch) -> None:
             "lead_seconds": 209,
             "predicted_offset_body_diameters": 0.097,
             "observer_distance_km": 1.25,
+            "observer_lat": 52.0,
+            "observer_lon": 21.0,
             "google_maps_url": "https://maps.example/point",
             "event_slot": 123,
             "validation_result": "MISS",
             "actual_offset_body_diameters": 1.368,
             "time_error_seconds": 4.8,
             "validated_at": sent_at + timedelta(minutes=5),
-        }],
-    )
+        }]
+
+    monkeypatch.setattr(ui, "_query", fake_query)
 
     result = ui._alerts("postgresql://test", {"range": ["today"]})
 
@@ -133,13 +144,19 @@ def test_alerts_expose_travel_margin_and_validation(monkeypatch) -> None:
         "events": 1,
         "early": 1,
         "confirmed": 0,
+        "last_chance": 0,
         "better": 0,
         "hit": 0,
-        "miss": 1,
+        "miss": 0,
+        "uncertain": 0,
+        "no_data": 1,
         "avg_lead_seconds": 209.0,
     }
     assert result["items"][0]["travel_seconds"] == 112.5
     assert result["items"][0]["preparation_margin_seconds"] == 96.5
+    assert result["items"][0]["event_validation_result"] == "MISS"
+    assert result["items"][0]["validation_result"] == "NO_DATA"
+    assert result["items"][0]["validation_scope"] == "alert"
 
 
 def test_radar_endpoint_exposes_independent_geometry(monkeypatch) -> None:

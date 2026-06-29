@@ -77,7 +77,14 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
         alert_type = notification_phase
         is_better_alert = False
         if notification_phase == "EARLY":
-            duplicate_event = storage.alert_event_exists(
+            previous_confirmed_event = storage.alert_event_summary(
+                icao=candidate.aircraft.icao,
+                body=candidate.body,
+                transit_time_utc=candidate.transit_time_utc,
+                event_window_seconds=settings.locked_alert_window_seconds,
+                confirmed_only=True,
+            )
+            duplicate_event = previous_confirmed_event is not None or storage.alert_event_exists(
                 icao=candidate.aircraft.icao,
                 body=candidate.body,
                 transit_time_utc=candidate.transit_time_utc,
@@ -99,7 +106,7 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
                 min_distance_improvement_km=settings.telegram_update_min_distance_improvement_km,
                 min_offset_improvement_ratio=settings.telegram_update_min_offset_improvement_ratio,
             )
-            if duplicate_event and is_better_alert:
+            if duplicate_event and is_better_alert and notification_phase != "LAST_CHANCE":
                 alert_type = "BETTER"
 
         if duplicate_event and not is_better_alert:

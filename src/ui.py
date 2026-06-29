@@ -22,6 +22,7 @@ from psycopg.rows import dict_row
 from ephemeris import get_body_state, get_body_states
 from geo import angular_separation_deg, destination_point, haversine_distance_km, nm_to_km, topocentric_aircraft_position
 from observer_solver import observer_search_grid
+from validation import ActualObservation, validate_actual_transit
 
 
 LOG = logging.getLogger(__name__)
@@ -252,9 +253,8 @@ INDEX_HTML = """<!doctype html>
 </dialog>
 <script>
 const tabGroups = [
-  {label:'Codzienna analiza', items:[['overview','Dzisiaj','◈'],['radar','Radar','◌'],['candidates','Zdarzenia','◇'],['alerts','Alerty','◉'],['validations','Wyniki HIT/MISS','◎']]},
-  {label:'Analiza szczegółowa', items:[['filters','Lejek i filtry','≋'],['geometry','Geometria','⌁'],['maptab','Mapa','⌖']]},
-  {label:'Diagnostyka', collapsible:true, items:[['aircraft','Samoloty ADS-B','✈'],['runs','Cykle','↻'],['feeder','Feeder','⌁'],['logs','Logi','▤'],['config','Konfiguracja','⚙'],['export','Eksport','⇩']]}
+  {label:'Polowanie', items:[['overview','Dzisiaj','◈'],['alerts','Alerty','◉'],['maptab','Mapa / szczegóły','⌖']]},
+  {label:'Debug', collapsible:true, items:[['candidates','Zdarzenia','◇'],['validations','Walidacje','◎'],['radar','Radar','◌'],['filters','Lejek','≋'],['geometry','Geometria','⌁'],['aircraft','ADS-B','✈'],['runs','Cykle','↻'],['feeder','Feeder','⌁'],['logs','Logi','▤'],['config','Konfiguracja','⚙'],['export','Eksport','⇩']]}
 ];
 const tabs = tabGroups.flatMap(group => group.items);
 let active = 'overview', timer = null, lastData = {}, refreshInFlight = false, pendingRefresh = false, eventFilter = 'all', funnelFocus = null;
@@ -327,7 +327,7 @@ async function refreshAll() {
     const next = {...lastData};
     if (!next.overview || requestedActive === 'overview') next.overview = await getJson('/api/overview?' + q);
     if (requestedActive === 'overview') {
-      // Keep the landing view cheap; detailed tabs load log-heavy data on demand.
+      next.alerts = await getJson('/api/alerts?' + q);
     } else if (requestedActive === 'maptab') {
       next.mapData = await getJson('/api/map?' + q);
     } else if (requestedActive === 'radar') next.radar = await getJson('/api/radar?' + q);
@@ -394,35 +394,47 @@ function renderRadar() {
 }
 function renderOverview() {
   const o = lastData.overview;
+  const alertsData = lastData.alerts || {summary:{},items:[]};
+  const alertSummary = alertsData.summary || {};
   const t=o.totals||{}, events=o.top_events||[], latest=o.latest_run||{};
   const runAge=latest.finished_at ? (Date.now()-new Date(latest.finished_at).getTime())/1000 : null;
   const systemOk=runAge!=null && runAge<180;
-  const decision=t.alerts>0
-    ? `Wysłano ${num(t.alerts)} ${Number(t.alerts)===1?'alert':'alertów'} w wybranym okresie.`
+  const alertCount = Number(alertSummary.alerts ?? t.alerts ?? 0);
+  const hitCount = Number(alertSummary.hit || 0);
+  const missCount = Number(alertSummary.miss || 0);
+  const noDataCount = Number(alertSummary.no_data || 0);
+  const decision=alertCount>0
+    ? `Wysłano ${num(alertCount)} ${alertCount===1?'alert':'alertów'} w wybranym okresie: ${num(hitCount)} HIT, ${num(missCount)} MISS, ${num(noDataCount)} bez danych ADS-B.`
     : events.length
       ? `Brak alertu. Najlepsze zdarzenie osiągnęło score ${num(events[0].score,2)}, ale nie przeszło wszystkich warunków powiadomienia.`
       : 'Brak alertu, ponieważ żaden lot nie utworzył zdarzenia o odpowiedniej geometrii.';
-  const eventHeaders=[
-    {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao)}</span> <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span>`},
-    {name:'Najlepszy score',fn:r=>`${score(r.score)}<span class="threshold">próg ${num(o.alert_min_score,2)}</span>`},
-    {name:'Offset',fn:r=>num(r.offset_body_diameters,3)},
-    {name:'Cykle',fn:r=>`${num(r.qualifying_cycles)} spełniających / ${num(r.cycle_count)} wszystkich`},
-    {name:'Decyzja',fn:r=>`<span class="pill ${r.notification_block_reason?'warn':clsStatus(r.status)}">${r.notification_block_reason?'Czeka na potwierdzenie':statusLabel(r.status)}</span><div class="reason">${notificationReason(r)}</div>`},
-    {name:'',fn:r=>`<button onclick="openEvent(${Number(r.id)})">Pełna analiza</button>`}
+  const alertRows=(alertsData.items||[]).slice().sort((a,b)=>{
+    const resultRank={HIT:0,UNCERTAIN:1,MISS:2,NO_DATA:3};
+    const phaseRank={CONFIRMED:0,BETTER:1,LAST_CHANCE:2,EARLY:3};
+    return (resultRank[a.validation_result]??4)-(resultRank[b.validation_result]??4)
+      || (phaseRank[a.alert_type]??4)-(phaseRank[b.alert_type]??4)
+      || (new Date(b.printed_at).getTime()-new Date(a.printed_at).getTime());
+  }).slice(0,8);
+  const alertHeaders=[
+    {name:'Alert',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span>`},
+    {name:'Typ i czas',fn:r=>`<span class="pill ${r.alert_type==='EARLY'?'warn':r.alert_type==='LAST_CHANCE'?'bad':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)} · lead ${durationLabel(r.lead_seconds)}</div>`},
+    {name:'Prognoza',fn:r=>`score ${num(r.score,2)}<br><span class="muted">offset ${num(r.predicted_offset_body_diameters,3)} · punkt ${num(r.observer_distance_km,2)} km</span>`},
+    {name:'Wynik',fn:r=>`<span class="pill ${validationClass(r.validation_result)}">${esc(validationLabel(r.validation_result||'NO_DATA'))}</span><div class="reason">${r.actual_offset_body_diameters==null?'czeka na próbki ADS-B':`offset ADS-B ${num(r.actual_offset_body_diameters,3)}`}</div>`},
+    {name:'',fn:r=>`<button onclick="openEvent(${Number(r.candidate_id)})">Analiza</button>`}
   ];
-  overview.innerHTML = `<div class="decision"><div class="decision-icon">${t.alerts?'✓':'i'}</div><div><h2>${systemOk?'Analiza działa':'Sprawdź aktualność analizy'}</h2><p>${decision} ${systemOk?`Ostatni cykl zakończył się ${relativeTime(latest.finished_at)}.`:'Brak świeżo zakończonego cyklu.'}</p></div></div>
+  overview.innerHTML = `<div class="decision"><div class="decision-icon">${alertCount?'✓':'i'}</div><div><h2>Dzisiaj: alerty i walidacja</h2><p>${decision} ${systemOk?`Ostatni cykl zakończył się ${relativeTime(latest.finished_at)}.`:'Brak świeżo zakończonego cyklu — może to oznaczać standby albo problem usługi.'}</p></div></div>
   <div class="metrics">
-    ${metric('Stan systemu',systemOk?'AKTYWNY':'NIEAKTUALNY',systemOk?'good':'bad')}
+    ${metric('Stan systemu',systemOk?'AKTYWNY':'STANDBY / sprawdź',systemOk?'good':'warn')}
+    ${metric('Alerty',num(alertCount),alertCount?'good':'')}
+    ${metric('HIT alertów',num(hitCount),hitCount?'good':'')}
+    ${metric('MISS alertów',num(missCount),missCount?'bad':'')}
+    ${metric('Niepewne',num(alertSummary.uncertain||0),alertSummary.uncertain?'warn':'')}
+    ${metric('Brak danych',num(noDataCount),noDataCount?'warn':'')}
     ${metric('Najlepszy score',events.length?num(events[0].score,2):'—',events.length&&Number(events[0].score)>=Number(o.alert_min_score)?'warn':'')}
-    ${metric('Blisko alertu',num(t.near_alert_events),t.near_alert_events?'warn':'')}
-    ${metric('Radar eventy',num(t.radar_events),t.radar_events?'good':'')}
-    ${metric('Alerty',num(t.alerts),t.alerts?'good':'')}
-    ${metric('Cykle z geometrią',num(t.geometry_cycles))}
-    ${metric('Przeanalizowane loty',num(t.aircraft_analyzed))}
   </div>
   <div class="grid-2">
-    <div class="panel"><div class="panel-head"><h2>Najlepsze zdarzenia</h2><button onclick="showTab('candidates')">wszystkie zdarzenia</button></div>${table(eventHeaders,events,{h:480})}</div>
-    <div class="panel"><div class="panel-head"><h2>Gdzie odpadają kandydaci</h2><button onclick="showTab('filters')">pełny lejek</button></div>${table([{name:'Powód',fn:r=>reasonLabel(r.rejection_reason)},{name:'Liczba',fn:r=>num(r.count)}],o.rejection_summary||[],{h:300})}<div class="panel-head" style="margin-top:20px"><h2>Aktywność analizy</h2><span class="muted">kandydaci w czasie</span></div>${bars(o.run_trend||[],'candidate_count')}<div class="panel-head" style="margin-top:20px"><h2>Trend RADAR</h2><span class="muted">radar_events w czasie</span></div>${bars(o.radar_trend||[],'count')}</div>
+    <div class="panel"><div class="panel-head"><div><h2>Najważniejsze alerty</h2><span class="muted">Tylko dane potrzebne do walidacji: detekcja, czas, wynik ADS-B.</span></div><button onclick="showTab('alerts')">pełna lista alertów</button></div>${table(alertHeaders,alertRows,{h:520})}</div>
+    <div class="panel"><div class="panel-head"><div><h2>Co sprawdzić dalej</h2><span class="muted">Minimalne skróty bez surowych danych technicznych.</span></div></div><div class="kv"><div>Mapa obserwacji</div><div><button onclick="showTab('maptab')">Otwórz mapę</button></div><div>Zdarzenia bez alertu</div><div><button onclick="showTab('candidates')">Debug: zdarzenia</button></div><div>Lejek odrzuceń</div><div><button onclick="showTab('filters')">Debug: lejek</button></div><div>Trend detekcji</div><div>${bars(o.run_trend||[],'candidate_count')}</div></div></div>
   </div>`;
 }
 function renderMapTab() {
@@ -628,7 +640,7 @@ function renderCandidates(){
   const headers=[
     {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao)}</span> <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span>`},
     {name:'Wykryte',fn:r=>`${fmt(r.first_seen_at)}<br><span class="muted">ostatni cykl: ${fmt(r.last_seen_at)}</span>`},
-    {name:'Najlepszy wynik',fn:r=>`${score(r.score)}<br><span class="muted">offset ${num(r.offset_body_diameters,3)} · obserwator ${num(r.observer_distance_km,2)} km</span>`},
+    {name:'Wynik detekcji',fn:r=>`${score(r.score)}<br><span class="muted">${Number(r.alert_count)>0?'score alertu':'najlepszy score'} · offset ${num(r.offset_body_diameters,3)} · obserwator ${num(r.observer_distance_km,2)} km</span>${r.best_event_score!=null&&Number(r.best_event_score)>Number(r.score)?`<br><span class="muted">najlepsza geometria eventu: ${num(r.best_event_score,2)}</span>`:''}`},
     {name:'Stabilność',fn:r=>`<b>${num(r.qualifying_cycles)}</b> cykli ≥ ${num(data.alert_min_score,2)}<br><span class="muted">${num(r.cycle_count)} cykli zdarzenia · wymagane min. ${num(data.required_early_cycles)}</span>`},
     {name:'Etap',fn:r=>{const stage=eventStage(r);return `<span class="pill ${stage.kind}">${esc(stage.label)}</span><div class="reason">${r.validation_result?`Offset ADS-B: ${num(r.actual_offset_body_diameters,3)}`:notificationReason(r)}</div>`;}},
     {name:'Dane',fn:r=>r.has_snapshot?'<span class="pill good">Pełna migawka</span>':'<span class="muted">bez trajektorii</span>'},
@@ -655,14 +667,13 @@ function renderFilters(){
 function renderAlerts(){
   const data=lastData.alerts||{summary:{},items:[]},s=data.summary||{};
   const headers=[
-    {name:'Powiadomienie',fn:r=>`<span class="pill ${r.alert_type==='EARLY'?'warn':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)}</div>`},
-    {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao||'-')}</span><br><span class="muted">${bodyLabel(r.body)} · tranzyt ${fmt(r.transit_time_utc)}</span>`},
-    {name:'Czas na reakcję',fn:r=>{const margin=Number(r.preparation_margin_seconds),kind=margin>=60?'good':margin>=0?'warn':'bad';return `<b>${durationLabel(r.lead_seconds)}</b> do tranzytu<br><span class="muted">dojazd ok. ${durationLabel(r.travel_seconds)}</span><br><span class="pill ${kind}">po dojeździe ${durationLabel(r.preparation_margin_seconds)}</span>`;}},
-    {name:'Prognoza',fn:r=>`${score(r.score)}<br><span class="muted">offset ${num(r.predicted_offset_body_diameters,3)} · ${num(r.observer_distance_km,2)} km</span>`},
-    {name:'Wynik',fn:r=>r.validation_result?`<span class="pill ${validationClass(r.validation_result)}">${esc(r.validation_result)}</span><div class="reason">Offset ADS-B ${num(r.actual_offset_body_diameters,3)}<br>Δ czasu ${r.time_error_seconds==null?'—':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`}</div>`:'<span class="pill warn">Oczekuje</span><div class="reason">Walidacja po tranzycie</div>'},
+    {name:'Alert',fn:r=>`<span class="pill ${r.alert_type==='EARLY'?'warn':r.alert_type==='LAST_CHANCE'?'bad':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)} · lead ${durationLabel(r.lead_seconds)}</div>`},
+    {name:'Detekcja',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao||'-')}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span><br><b>score ${num(r.score,2)}</b> · offset prog. <b>${num(r.predicted_offset_body_diameters,3)}</b> · punkt ${num(r.observer_distance_km,2)} km`},
+    {name:'Walidacja ADS-B tego alertu',fn:r=>r.validation_result?`<span class="pill ${validationClass(r.validation_result)}">${esc(validationLabel(r.validation_result))}</span><div class="reason">offset ${num(r.actual_offset_body_diameters,3)} · Δ czasu ${r.time_error_seconds==null?'—':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`}<br>próbki ADS-B: ${num(r.validation_observation_count)}</div>`:'<span class="pill warn">Oczekuje</span><div class="reason">liczone po tranzycie z próbek ADS-B</div>'},
+    {name:'Dojazd',fn:r=>{const margin=Number(r.preparation_margin_seconds),kind=margin>=60?'good':margin>=0?'warn':'bad';return `<span class="pill ${kind}">${durationLabel(r.preparation_margin_seconds)}</span><div class="reason">dojazd ok. ${durationLabel(r.travel_seconds)}</div>`;}},
     {name:'',fn:r=>`${r.google_maps_url?`<a href="${esc(r.google_maps_url)}" target="_blank">Mapa</a> · `:''}<button onclick="openEvent(${Number(r.candidate_id)})">Analiza</button>`}
   ];
-  alerts.innerHTML=`<div class="metrics">${metric('Alerty',num(s.alerts),s.alerts?'good':'')}${metric('Zdarzenia',num(s.events))}${metric('Wczesne',num(s.early),s.early?'warn':'')}${metric('Potwierdzone',num(Number(s.confirmed||0)+Number(s.better||0)),s.confirmed||s.better?'good':'')}${metric('HIT',num(s.hit),s.hit?'good':'')}${metric('MISS',num(s.miss),s.miss?'bad':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Historia powiadomień</h2><span class="muted">Etap, dostępny czas i wynik każdego alertu.</span></div><span class="muted">Średnie wyprzedzenie: ${durationLabel(s.avg_lead_seconds)}</span></div>${table(headers,data.items||[],{h:760})}</div>`;
+  alerts.innerHTML=`<div class="metrics">${metric('Alerty',num(s.alerts),s.alerts?'good':'')}${metric('Zdarzenia',num(s.events))}${metric('HIT alertów',num(s.hit),s.hit?'good':'')}${metric('MISS alertów',num(s.miss),s.miss?'bad':'')}${metric('Niepewne',num(s.uncertain),s.uncertain?'warn':'')}${metric('Brak danych',num(s.no_data),s.no_data?'warn':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Alerty: detekcja → walidacja</h2><span class="muted">Minimalny widok: co wykryto, kiedy wysłano i czy konkretny alert trafił po ADS-B.</span></div><span class="muted">Średnie wyprzedzenie: ${durationLabel(s.avg_lead_seconds)}</span></div>${table(headers,data.items||[],{h:760})}</div>`;
 }
 function renderValidations(){
   const d=lastData.validations||{summary:{},items:[]},v=d.summary||{};
@@ -1429,11 +1440,31 @@ def _events(database_url: str, params: dict, limit: int = 300) -> dict:
           GROUP BY lower(icao), lower(body), event_slot
         ), ranked AS (
           SELECT source.*,
+                 a.id AS source_alert_id,
+                 a.alert_type AS source_alert_type,
                  row_number() OVER (
                    PARTITION BY lower(icao), lower(body), event_slot
-                   ORDER BY score DESC, offset_body_diameters ASC, created_at DESC
+                   ORDER BY
+                     CASE WHEN a.id IS NOT NULL THEN 0 ELSE 1 END,
+                     CASE
+                       WHEN a.alert_type = 'CONFIRMED' THEN 0
+                       WHEN a.alert_type = 'BETTER' THEN 1
+                       WHEN a.alert_type = 'LAST_CHANCE' THEN 2
+                       WHEN a.alert_type = 'EARLY' THEN 3
+                       ELSE 4
+                     END,
+                     CASE
+                       WHEN source.status = 'ALERT_SENT' THEN 0
+                       WHEN source.status = 'ALERT_READY' THEN 1
+                       WHEN source.status = 'OBSERVATION_CANDIDATE' THEN 2
+                       ELSE 3
+                     END,
+                     source.score DESC,
+                     source.offset_body_diameters ASC,
+                     source.created_at DESC
                  ) AS rank
           FROM source
+          LEFT JOIN alerts a ON a.transit_candidate_id = source.id
         ), alert_stats AS (
           SELECT lower(c.icao) AS normalized_icao, lower(c.body) AS normalized_body,
                  floor(extract(epoch FROM c.transit_time_utc) / %s)::bigint AS event_slot,
@@ -1446,9 +1477,10 @@ def _events(database_url: str, params: dict, limit: int = 300) -> dict:
         SELECT ranked.id AS candidate_id, ranked.icao, ranked.callsign, ranked.aircraft_type,
                ranked.body, ranked.event_slot, ranked.transit_time_utc, ranked.created_at,
                stats.first_seen_at, stats.last_seen_at, stats.cycle_count,
-               stats.qualifying_cycles, stats.best_score AS score,
+               stats.qualifying_cycles, ranked.score AS score, stats.best_score AS best_event_score,
                ranked.offset_body_diameters, ranked.observer_distance_km,
                ranked.status, ranked.rejection_reason,
+               ranked.source_alert_id, ranked.source_alert_type,
                COALESCE(alert_stats.alert_count, 0)::int AS alert_count,
                alert_stats.alert_types,
                validation.result AS validation_result,
@@ -1525,6 +1557,7 @@ def _alerts(database_url: str, params: dict) -> dict:
                extract(epoch FROM c.transit_time_utc - a.printed_at) AS lead_seconds,
                c.offset_body_diameters AS predicted_offset_body_diameters,
                c.observer_distance_km, c.google_maps_url,
+               c.observer_lat, c.observer_lon,
                floor(extract(epoch FROM c.transit_time_utc) / %s)::bigint AS event_slot,
                validation.result AS validation_result,
                validation.actual_offset_body_diameters,
@@ -1549,16 +1582,16 @@ def _alerts(database_url: str, params: dict) -> dict:
         travel_seconds = distance_km / effective_speed * 3600.0
         item["travel_seconds"] = round(travel_seconds, 1)
         item["preparation_margin_seconds"] = round(lead_seconds - travel_seconds, 1)
+        item["event_validation_result"] = item.get("validation_result")
+        per_alert = _per_alert_validation(database_url, item)
+        if per_alert:
+            item.update(per_alert)
 
     event_keys = {
         (str(item.get("icao") or "").lower(), str(item.get("body") or "").lower(), item.get("event_slot"))
         for item in items
     }
-    validated_events = {
-        (str(item.get("icao") or "").lower(), str(item.get("body") or "").lower(), item.get("event_slot")): item.get("validation_result")
-        for item in items
-        if item.get("validation_result")
-    }
+    validated_alerts = [item.get("validation_result") for item in items if item.get("validation_result")]
     lead_values = [float(item["lead_seconds"]) for item in items if item.get("lead_seconds") is not None]
     summary = {
         "alerts": len(items),
@@ -1567,11 +1600,81 @@ def _alerts(database_url: str, params: dict) -> dict:
         "confirmed": sum(1 for item in items if item.get("alert_type") == "CONFIRMED"),
         "last_chance": sum(1 for item in items if item.get("alert_type") == "LAST_CHANCE"),
         "better": sum(1 for item in items if item.get("alert_type") == "BETTER"),
-        "hit": sum(1 for result in validated_events.values() if result == "HIT"),
-        "miss": sum(1 for result in validated_events.values() if result == "MISS"),
+        "hit": sum(1 for result in validated_alerts if result == "HIT"),
+        "miss": sum(1 for result in validated_alerts if result == "MISS"),
+        "uncertain": sum(1 for result in validated_alerts if result == "UNCERTAIN"),
+        "no_data": sum(1 for result in validated_alerts if result == "NO_DATA"),
         "avg_lead_seconds": round(sum(lead_values) / len(lead_values), 1) if lead_values else None,
     }
     return {"items": items, "summary": summary}
+
+
+def _per_alert_validation(database_url: str, item: dict) -> dict:
+    transit_time = item.get("transit_time_utc")
+    if not isinstance(transit_time, datetime) or transit_time > datetime.now(timezone.utc):
+        return {}
+    icao = item.get("icao")
+    body = item.get("body")
+    observer_lat = item.get("observer_lat")
+    observer_lon = item.get("observer_lon")
+    if not icao or not body or observer_lat is None or observer_lon is None:
+        return {}
+    env = _read_env_file()
+    window_seconds = int(os.getenv("TRANSIT_VALIDATION_OBSERVATION_WINDOW_SECONDS", env.get("TRANSIT_VALIDATION_OBSERVATION_WINDOW_SECONDS", "90")))
+    uncertainty = float(os.getenv("TRANSIT_VALIDATION_UNCERTAINTY_DIAMETERS", env.get("TRANSIT_VALIDATION_UNCERTAINTY_DIAMETERS", "0.10")))
+    try:
+        rows = _query(
+            database_url,
+            """
+            SELECT observed_at, lat, lon, altitude_ft
+            FROM aircraft_observations
+            WHERE lower(icao) = lower(%s)
+              AND observed_at BETWEEN %s AND %s
+            ORDER BY observed_at
+            """,
+            (
+                icao,
+                transit_time - timedelta(seconds=max(1, window_seconds)),
+                transit_time + timedelta(seconds=max(1, window_seconds)),
+            ),
+        )
+        observations = [
+            ActualObservation(row["observed_at"], row["lat"], row["lon"], row.get("altitude_ft"))
+            for row in rows
+            if {"observed_at", "lat", "lon"}.issubset(row.keys())
+        ]
+        result = validate_actual_transit(
+            observations,
+            body_name=str(body),
+            observer_lat=float(observer_lat),
+            observer_lon=float(observer_lon),
+            hit_uncertainty_diameters=uncertainty,
+        )
+    except Exception as exc:
+        LOG.debug("Per-alert validation failed for alert=%s: %s", item.get("alert_id"), exc)
+        return {}
+    if result is None:
+        return {
+            "validation_result": "NO_DATA",
+            "actual_offset_body_diameters": None,
+            "actual_separation_deg": None,
+            "vertical_offset_body_diameters": None,
+            "horizontal_offset_body_diameters": None,
+            "time_error_seconds": None,
+            "validation_observation_count": len(observations),
+            "validation_scope": "alert",
+        }
+    return {
+        "validation_result": result.result,
+        "actual_offset_body_diameters": result.actual_offset_body_diameters,
+        "actual_separation_deg": result.actual_separation_deg,
+        "vertical_offset_body_diameters": result.vertical_offset_body_diameters,
+        "horizontal_offset_body_diameters": result.horizontal_offset_body_diameters,
+        "time_error_seconds": (result.actual_closest_time_utc - transit_time).total_seconds(),
+        "actual_closest_time_utc": result.actual_closest_time_utc,
+        "validation_observation_count": len(observations),
+        "validation_scope": "alert",
+    }
 
 
 def _validations(database_url: str, params: dict, limit: int = 200) -> dict:
