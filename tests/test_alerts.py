@@ -58,6 +58,13 @@ def test_format_alert_labels_early_forecast() -> None:
     assert "EARLY TRANSIT FORECAST" in message
 
 
+def test_format_alert_labels_watch_candidate() -> None:
+    message = format_alert(_candidate(), phase="WATCH")
+
+    assert "WATCH TRANSIT CANDIDATE" in message
+    assert "strong geometry but not stable yet" in message
+
+
 def test_format_alert_labels_confirmed_alert() -> None:
     message = format_alert(_candidate(), phase="CONFIRMED")
 

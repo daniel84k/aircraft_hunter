@@ -123,7 +123,7 @@ class TelegramNotifier:
         min_offset_improvement_ratio: float,
         notification_phase: str | None = None,
     ) -> bool:
-        if previous.status == "EARLY" and notification_phase in {"CONFIRMED", "LAST_CHANCE"}:
+        if previous.status in {"WATCH", "EARLY"} and notification_phase in {"EARLY", "CONFIRMED", "LAST_CHANCE"}:
             return True
         if now < previous.sent_at + max(30, update_cooldown_seconds):
             return False

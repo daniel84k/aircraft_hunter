@@ -7,6 +7,7 @@ from models import AircraftState, TransitCandidate
 from main import REJECTION_REASONS
 from main import (
     candidate_notification_phase,
+    candidate_watch_phase,
     classify_candidate,
     is_better_notification,
     notification_event_key,
@@ -243,6 +244,35 @@ def test_low_score_observation_candidate_does_not_send_early() -> None:
     candidate.status = "OBSERVATION_CANDIDATE"
 
     assert candidate_notification_phase(candidate, 3, settings) is None
+
+
+def test_strong_unstable_candidate_sends_watch_phase() -> None:
+    settings = replace(
+        load_settings(),
+        watch_notifications_enabled=True,
+        watch_min_score=0.75,
+        watch_max_offset_body_diameters=0.10,
+        watch_min_lead_seconds=180,
+    )
+    candidate = _candidate(settings, score=0.8, separation=0.045 * 2 * 0.2725, distance=1.5, body_elevation=20)
+    candidate.status = "OBSERVATION_CANDIDATE"
+
+    assert candidate_watch_phase(candidate, "TRANSIT_TIME_MOVED", settings) == "WATCH"
+    assert candidate_watch_phase(candidate, "OBSERVER_POINT_MOVED", settings) == "WATCH"
+
+
+def test_watch_phase_does_not_fire_for_weak_or_hard_rejected_candidates() -> None:
+    settings = replace(load_settings(), watch_min_score=0.75, watch_max_offset_body_diameters=0.10)
+    candidate = _candidate(settings, score=0.7, separation=0.045 * 2 * 0.2725, distance=1.5, body_elevation=20)
+    candidate.status = "OBSERVATION_CANDIDATE"
+
+    assert candidate_watch_phase(candidate, "TRANSIT_TIME_MOVED", settings) is None
+    candidate.score = 0.8
+    candidate.status = "REJECTED"
+    candidate.rejection_reason = "LOW_SCORE"
+    assert candidate_watch_phase(candidate, "TRANSIT_TIME_MOVED", settings) is None
+    candidate.status = "OBSERVATION_CANDIDATE"
+    assert candidate_watch_phase(candidate, "CYCLE_GAP", settings) is None
 
 
 def test_strict_airport_traffic_is_stored_without_notification() -> None:

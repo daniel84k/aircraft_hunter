@@ -62,6 +62,15 @@ def test_notifier_confirms_early_forecast_without_waiting_for_cooldown() -> None
     assert notifier._should_update(previous, candidate, 300, 900, 180, 0.5, 0.3, "CONFIRMED")
 
 
+def test_notifier_promotes_watch_without_waiting_for_cooldown() -> None:
+    notifier = TelegramNotifier(token="", chat_id="")
+    previous = SentCandidate(290, "WATCH", 0.5, 0.1)
+    candidate = _candidate(status="ALERT_READY", distance=0.5, offset=0.1)
+
+    assert notifier._should_update(previous, candidate, 300, 900, 180, 0.5, 0.3, "EARLY")
+    assert notifier._should_update(previous, candidate, 300, 900, 180, 0.5, 0.3, "CONFIRMED")
+
+
 def test_notifier_sends_last_chance_after_early_without_waiting_for_cooldown() -> None:
     notifier = TelegramNotifier(token="", chat_id="")
     previous = SentCandidate(290, "EARLY", 0.5, 0.1)

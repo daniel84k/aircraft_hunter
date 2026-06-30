@@ -50,6 +50,8 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False, phase: st
         title = "BETTER TRANSIT ALERT"
     elif phase == "EARLY":
         title = "EARLY TRANSIT FORECAST"
+    elif phase == "WATCH":
+        title = "WATCH TRANSIT CANDIDATE"
     elif phase == "CONFIRMED":
         title = "CONFIRMED TRANSIT ALERT"
     elif phase == "LAST_CHANCE":
@@ -60,6 +62,8 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False, phase: st
         guidance = "Last chance   : quick look now; use current/nearby spot if travel is not realistic"
     elif phase == "EARLY":
         guidance = "Observation   : early heads-up; go out and watch the object area"
+    elif phase == "WATCH":
+        guidance = "Observation   : strong geometry but not stable yet; watch if you can"
     elif phase == "CONFIRMED":
         guidance = "Observation   : confirmed geometry; use navigation if travel time allows"
     else:

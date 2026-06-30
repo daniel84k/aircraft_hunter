@@ -314,7 +314,8 @@ const bodyLabel = value => String(value||'').toLowerCase()==='sun' ? 'Słońce' 
 const statusLabel = value => ({ALERT_SENT:'Alert wysłany',ALERT_READY:'Gotowy do alertu',OBSERVATION_CANDIDATE:'Obserwowany',REJECTED:'Odrzucony',CANDIDATE_STORED:'Zapisany'}[value]||value||'-');
 const reasonLabel = value => ({LOW_SCORE:'Za niski score',TOO_EARLY_FOR_ALERT:'Za wcześnie lub brak potwierdzenia w kolejnym cyklu',TOO_LATE:'Za mało czasu na reakcję',AIRPORT_TRAFFIC:'Ruch lotniskowy',AIRPORT_STRICT:'Ruch lotniskowy',LOW_ALTITUDE:'Za mała wysokość',UNSTABLE_FLIGHT:'Niestabilny tor lotu',FIRST_OBSERVATION:'Pierwszy cykl kwalifikujący — brak potwierdzenia',ONLY_1_CONVERGED_CYCLE:'Tylko 1 stabilny cykl',CYCLE_GAP:'Przerwa między cyklami przerwała potwierdzenie',TRANSIT_TIME_MOVED:'Czas tranzytu przesunął się za mocno',OBSERVER_POINT_MOVED:'Punkt obserwacji przesunął się za mocno',OFFSET_WORSENED:'Offset pogorszył się za mocno',SAME_CYCLE_DUPLICATE:'Duplikat w tym samym cyklu','-':'Brak dodatkowej przyczyny'}[value]||String(value||'-').replaceAll('_',' ').toLowerCase());
 const notificationReason = row => row.notification_block_reason ? reasonLabel(row.notification_block_reason) : reasonLabel(row.rejection_reason);
-const alertPhaseLabel = value => ({EARLY:'Wczesny',CONFIRMED:'Potwierdzony',LAST_CHANCE:'Ostatni moment',BETTER:'Lepszy punkt',CONSOLE:'Alert'}[String(value||'').toUpperCase()]||value||'Alert');
+const alertPhaseLabel = value => ({WATCH:'Obserwuj',EARLY:'Wczesny',CONFIRMED:'Potwierdzony',LAST_CHANCE:'Ostatni moment',BETTER:'Lepszy punkt',CONSOLE:'Alert'}[String(value||'').toUpperCase()]||value||'Alert');
+const alertPhaseClass = value => ({WATCH:'warn',EARLY:'warn',CONFIRMED:'good',BETTER:'good',LAST_CHANCE:'bad'}[String(value||'').toUpperCase()]||'good');
 const durationLabel = value => {if(value===null||value===undefined||Number.isNaN(Number(value)))return '—';const raw=Math.round(Number(value)),sign=raw<0?'-':'',seconds=Math.abs(raw),minutes=Math.floor(seconds/60),rest=seconds%60;return minutes?`${sign}${minutes} min ${rest?rest+' s':''}`.trim():`${sign}${rest} s`;};
 function relativeTime(value) { const seconds=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/1000)); return seconds<60?`${seconds} s temu`:seconds<3600?`${Math.round(seconds/60)} min temu`:`${Math.round(seconds/3600)} godz. temu`; }
 async function refreshAll() {
@@ -410,14 +411,14 @@ function renderOverview() {
       : 'Brak alertu, ponieważ żaden lot nie utworzył zdarzenia o odpowiedniej geometrii.';
   const alertRows=(alertsData.items||[]).slice().sort((a,b)=>{
     const resultRank={HIT:0,UNCERTAIN:1,MISS:2,NO_DATA:3};
-    const phaseRank={CONFIRMED:0,BETTER:1,LAST_CHANCE:2,EARLY:3};
+    const phaseRank={CONFIRMED:0,BETTER:1,LAST_CHANCE:2,EARLY:3,WATCH:4};
     return (resultRank[a.validation_result]??4)-(resultRank[b.validation_result]??4)
       || (phaseRank[a.alert_type]??4)-(phaseRank[b.alert_type]??4)
       || (new Date(b.printed_at).getTime()-new Date(a.printed_at).getTime());
   }).slice(0,8);
   const alertHeaders=[
     {name:'Alert',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span>`},
-    {name:'Typ i czas',fn:r=>`<span class="pill ${r.alert_type==='EARLY'?'warn':r.alert_type==='LAST_CHANCE'?'bad':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)} · lead ${durationLabel(r.lead_seconds)}</div>`},
+    {name:'Typ i czas',fn:r=>`<span class="pill ${alertPhaseClass(r.alert_type)}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)} · lead ${durationLabel(r.lead_seconds)}</div>`},
     {name:'Prognoza',fn:r=>`score ${num(r.score,2)}<br><span class="muted">offset ${num(r.predicted_offset_body_diameters,3)} · punkt ${num(r.observer_distance_km,2)} km</span>`},
     {name:'Wynik',fn:r=>`<span class="pill ${validationClass(r.validation_result)}">${esc(validationLabel(r.validation_result||'NO_DATA'))}</span><div class="reason">${r.actual_offset_body_diameters==null?'czeka na próbki ADS-B':`offset ADS-B ${num(r.actual_offset_body_diameters,3)}`}</div>`},
     {name:'',fn:r=>`<button onclick="openEvent(${Number(r.candidate_id)})">Analiza</button>`}
@@ -596,7 +597,7 @@ function validationExplanation(row){
 }
 const validationHeaders = () => [
   {name:'Wynik',fn:r=>`<span class="pill outcome ${validationClass(r.result)}">${esc(validationLabel(r.result))}</span><div class="reason">${esc(validationExplanation(r))}</div>`},
-  {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.predicted_transit_time_utc)}</span>${r.alert_type?`<br><span class="pill ${r.alert_type==='EARLY'?'warn':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span>`:''}`},
+    {name:'Zdarzenie',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao)}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.predicted_transit_time_utc)}</span>${r.alert_type?`<br><span class="pill ${alertPhaseClass(r.alert_type)}">${esc(alertPhaseLabel(r.alert_type))}</span>`:''}`},
   {name:'Prognoza → ADS-B',fn:r=>{const delta=r.actual_offset_body_diameters==null?null:Number(r.actual_offset_body_diameters)-Number(r.predicted_offset_body_diameters);return `<b>${num(r.predicted_offset_body_diameters,3)} → ${num(r.actual_offset_body_diameters,3)}</b><br><span class="muted">zmiana ${delta==null?'—':`${delta>=0?'+':''}${num(delta,3)} średnicy`}</span>`;}},
   {name:'Położenie względem tarczy',fn:r=>`${direction(r.vertical_offset_body_diameters,'↑ powyżej','↓ poniżej')}<br>${direction(r.horizontal_offset_body_diameters,'→ po prawej','← po lewej')}`},
   {name:'Czas',fn:r=>`${fmt(r.actual_closest_time_utc)}<br><span class="muted">Δ ${r.time_error_seconds==null?'—':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`}</span>`},
@@ -667,13 +668,13 @@ function renderFilters(){
 function renderAlerts(){
   const data=lastData.alerts||{summary:{},items:[]},s=data.summary||{};
   const headers=[
-    {name:'Alert',fn:r=>`<span class="pill ${r.alert_type==='EARLY'?'warn':r.alert_type==='LAST_CHANCE'?'bad':'good'}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)} · lead ${durationLabel(r.lead_seconds)}</div>`},
+    {name:'Alert',fn:r=>`<span class="pill ${alertPhaseClass(r.alert_type)}">${esc(alertPhaseLabel(r.alert_type))}</span><div class="reason">${fmt(r.printed_at)} · lead ${durationLabel(r.lead_seconds)}</div>`},
     {name:'Detekcja',fn:r=>`<span class="event-name">${esc(r.callsign||r.icao||'-')}</span> <span class="muted mono">${esc(r.icao||'-')}</span><br><span class="muted">${bodyLabel(r.body)} · ${fmt(r.transit_time_utc)}</span><br><b>score ${num(r.score,2)}</b> · offset prog. <b>${num(r.predicted_offset_body_diameters,3)}</b> · punkt ${num(r.observer_distance_km,2)} km`},
     {name:'Walidacja ADS-B tego alertu',fn:r=>r.validation_result?`<span class="pill ${validationClass(r.validation_result)}">${esc(validationLabel(r.validation_result))}</span><div class="reason">offset ${num(r.actual_offset_body_diameters,3)} · Δ czasu ${r.time_error_seconds==null?'—':`${Number(r.time_error_seconds)>=0?'+':''}${num(r.time_error_seconds,1)} s`}<br>próbki ADS-B: ${num(r.validation_observation_count)}</div>`:'<span class="pill warn">Oczekuje</span><div class="reason">liczone po tranzycie z próbek ADS-B</div>'},
     {name:'Dojazd',fn:r=>{const margin=Number(r.preparation_margin_seconds),kind=margin>=60?'good':margin>=0?'warn':'bad';return `<span class="pill ${kind}">${durationLabel(r.preparation_margin_seconds)}</span><div class="reason">dojazd ok. ${durationLabel(r.travel_seconds)}</div>`;}},
     {name:'',fn:r=>`${r.google_maps_url?`<a href="${esc(r.google_maps_url)}" target="_blank">Mapa</a> · `:''}<button onclick="openEvent(${Number(r.candidate_id)})">Analiza</button>`}
   ];
-  alerts.innerHTML=`<div class="metrics">${metric('Alerty',num(s.alerts),s.alerts?'good':'')}${metric('Zdarzenia',num(s.events))}${metric('HIT alertów',num(s.hit),s.hit?'good':'')}${metric('MISS alertów',num(s.miss),s.miss?'bad':'')}${metric('Niepewne',num(s.uncertain),s.uncertain?'warn':'')}${metric('Brak danych',num(s.no_data),s.no_data?'warn':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Alerty: detekcja → walidacja</h2><span class="muted">Minimalny widok: co wykryto, kiedy wysłano i czy konkretny alert trafił po ADS-B.</span></div><span class="muted">Średnie wyprzedzenie: ${durationLabel(s.avg_lead_seconds)}</span></div>${table(headers,data.items||[],{h:760})}</div>`;
+  alerts.innerHTML=`<div class="metrics">${metric('Alerty',num(s.alerts),s.alerts?'good':'')}${metric('Obserwuj',num(s.watch||0),s.watch?'warn':'')}${metric('Zdarzenia',num(s.events))}${metric('HIT alertów',num(s.hit),s.hit?'good':'')}${metric('MISS alertów',num(s.miss),s.miss?'bad':'')}${metric('Niepewne',num(s.uncertain),s.uncertain?'warn':'')}${metric('Brak danych',num(s.no_data),s.no_data?'warn':'')}</div><div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Alerty: detekcja → walidacja</h2><span class="muted">Minimalny widok: co wykryto, kiedy wysłano i czy konkretny alert trafił po ADS-B. “Obserwuj” oznacza mocną geometrię bez pełnej stabilizacji.</span></div><span class="muted">Średnie wyprzedzenie: ${durationLabel(s.avg_lead_seconds)}</span></div>${table(headers,data.items||[],{h:760})}</div>`;
 }
 function renderValidations(){
   const d=lastData.validations||{summary:{},items:[]},v=d.summary||{};
@@ -1596,6 +1597,7 @@ def _alerts(database_url: str, params: dict) -> dict:
     summary = {
         "alerts": len(items),
         "events": len(event_keys),
+        "watch": sum(1 for item in items if item.get("alert_type") == "WATCH"),
         "early": sum(1 for item in items if item.get("alert_type") == "EARLY"),
         "confirmed": sum(1 for item in items if item.get("alert_type") == "CONFIRMED"),
         "last_chance": sum(1 for item in items if item.get("alert_type") == "LAST_CHANCE"),
@@ -2113,7 +2115,9 @@ def _config_items() -> dict[str, str]:
         "NOTIFICATION_REQUIRE_CONVERGENCE", "EARLY_NOTIFICATION_CONSECUTIVE_CYCLES",
         "NOTIFICATION_CONSECUTIVE_CYCLES",
         "NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "NOTIFICATION_MAX_OBSERVER_SHIFT_KM",
-        "NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "STANDBY_BODY_ELEVATION_DEG", "RUN_MODE", "UI_PORT",
+        "NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "WATCH_NOTIFICATIONS_ENABLED",
+        "WATCH_MIN_SCORE", "WATCH_MAX_OFFSET_BODY_DIAMETERS", "WATCH_MIN_LEAD_SECONDS",
+        "STANDBY_BODY_ELEVATION_DEG", "RUN_MODE", "UI_PORT",
     ]
     env = _read_env_file()
     return {key: os.getenv(key, env.get(key, "")) for key in keys}

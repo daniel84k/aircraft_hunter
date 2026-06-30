@@ -10,6 +10,7 @@ from db import connect, run_migrations
 from logging_config import configure_logging
 from main import (
     candidate_notification_phase,
+    candidate_watch_phase,
     is_better_notification,
     notification_event_seen,
     process_due_transit_validations,
@@ -62,6 +63,8 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
             convergence_enabled=convergence_enabled,
         )
         if notification_phase is None:
+            notification_phase = candidate_watch_phase(candidate, convergence_reason, settings)
+        if notification_phase is None:
             LOG.info(
                 "ALERT_SERVICE_DEFERRED | candidate_id=%s aircraft=%s body=%s status=%s "
                 "consecutive_cycles=%s reason=%s",
@@ -76,7 +79,22 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
 
         alert_type = notification_phase
         is_better_alert = False
-        if notification_phase == "EARLY":
+        if notification_phase == "WATCH":
+            previous_confirmed_event = storage.alert_event_summary(
+                icao=candidate.aircraft.icao,
+                body=candidate.body,
+                transit_time_utc=candidate.transit_time_utc,
+                event_window_seconds=settings.locked_alert_window_seconds,
+                confirmed_only=True,
+            )
+            duplicate_event = previous_confirmed_event is not None or storage.alert_event_exists(
+                icao=candidate.aircraft.icao,
+                body=candidate.body,
+                transit_time_utc=candidate.transit_time_utc,
+                event_window_seconds=settings.locked_alert_window_seconds,
+                alert_type="WATCH",
+            )
+        elif notification_phase == "EARLY":
             previous_confirmed_event = storage.alert_event_summary(
                 icao=candidate.aircraft.icao,
                 body=candidate.body,
@@ -112,7 +130,7 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
         if duplicate_event and not is_better_alert:
             storage.mark_candidate_rejected(candidate_id, "DUPLICATE_ALERT")
             continue
-        if notification_phase == "EARLY" and early_sent_count >= settings.telegram_max_candidates_per_cycle:
+        if notification_phase in {"EARLY", "WATCH"} and early_sent_count >= settings.telegram_max_candidates_per_cycle:
             continue
 
         message = format_alert(candidate, better=is_better_alert, phase=notification_phase)
@@ -138,7 +156,7 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
             alert_type,
         )
         sent_count += 1
-        if notification_phase == "EARLY":
+        if notification_phase in {"EARLY", "WATCH"}:
             early_sent_count += 1
         notified_events.append(candidate)
         LOG.info(

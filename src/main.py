@@ -52,6 +52,13 @@ REJECTION_REASONS = {
     "INSUFFICIENT_DATA",
 }
 
+SOFT_WATCH_REASONS = {
+    "FIRST_OBSERVATION",
+    "TOO_EARLY_FOR_ALERT",
+    "TRANSIT_TIME_MOVED",
+    "OBSERVER_POINT_MOVED",
+}
+
 
 @dataclass
 class CandidateConvergence:
@@ -201,6 +208,27 @@ def candidate_notification_phase(
             return "LAST_CHANCE"
         return "EARLY"
     return None
+
+
+def candidate_watch_phase(
+    candidate: TransitCandidate,
+    convergence_reason: str,
+    settings: Settings,
+) -> str | None:
+    if not settings.watch_notifications_enabled:
+        return None
+    if candidate.status not in {"ALERT_READY", "OBSERVATION_CANDIDATE"}:
+        return None
+    if convergence_reason not in SOFT_WATCH_REASONS:
+        return None
+    lead_time = int((candidate.transit_time_utc - datetime.now(timezone.utc)).total_seconds())
+    if lead_time < settings.watch_min_lead_seconds:
+        return None
+    if candidate.score < settings.watch_min_score:
+        return None
+    if candidate.offset_body_diameters > settings.watch_max_offset_body_diameters:
+        return None
+    return "WATCH"
 
 
 def is_better_notification(
@@ -886,9 +914,30 @@ def run_cycle(
                 settings,
                 convergence_enabled=convergence_enabled,
             )
+            if notification_phase is None:
+                notification_phase = candidate_watch_phase(candidate, convergence_reason, settings)
             notification_ready = notification_phase is not None
             if eligible_for_notification and notification_ready:
-                if notification_phase == "EARLY":
+                if notification_phase == "WATCH":
+                    previous_confirmed_event = storage.alert_event_summary(
+                        icao=candidate.aircraft.icao,
+                        body=candidate.body,
+                        transit_time_utc=candidate.transit_time_utc,
+                        event_window_seconds=settings.locked_alert_window_seconds,
+                        confirmed_only=True,
+                    )
+                    duplicate_event = previous_confirmed_event is not None or storage.alert_event_exists(
+                        icao=candidate.aircraft.icao,
+                        body=candidate.body,
+                        transit_time_utc=candidate.transit_time_utc,
+                        event_window_seconds=settings.locked_alert_window_seconds,
+                        alert_type="WATCH",
+                    )
+                    alert_type = "WATCH"
+                    if duplicate_event:
+                        candidate.status = "REJECTED"
+                        candidate.rejection_reason = "DUPLICATE_ALERT"
+                elif notification_phase == "EARLY":
                     previous_confirmed_event = storage.alert_event_summary(
                         icao=candidate.aircraft.icao,
                         body=candidate.body,
@@ -999,7 +1048,7 @@ def run_cycle(
                     settings.locked_alert_window_seconds,
                 ):
                     continue
-                if notification_phase == "EARLY" and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
+                if notification_phase in {"EARLY", "WATCH"} and notified_candidates_this_cycle >= settings.telegram_max_candidates_per_cycle:
                     continue
                 message = format_alert(candidate, better=is_better_alert, phase=notification_phase)
                 notification_sent = True
@@ -1026,7 +1075,7 @@ def run_cycle(
                     alert_type,
                 )
                 alert_count += 1
-                if notification_phase == "EARLY":
+                if notification_phase in {"EARLY", "WATCH"}:
                     notified_candidates_this_cycle += 1
                 notified_events_this_cycle.append(candidate)
                 cycle_log(

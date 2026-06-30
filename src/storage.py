@@ -423,7 +423,7 @@ class Storage:
         window_start = transit_time_utc - half_window
         window_end = transit_time_utc + half_window
         confirmed_filter = (
-            "AND a.alert_type <> 'EARLY' AND tc.rejection_reason IS NULL"
+            "AND a.alert_type NOT IN ('EARLY', 'WATCH') AND tc.rejection_reason IS NULL"
             if confirmed_only
             else ""
         )
