@@ -65,6 +65,13 @@ def test_dashboard_navigation_prioritizes_analysis() -> None:
     assert 'section id="radar"' in ui.INDEX_HTML
 
 
+def test_dashboard_distinguishes_active_cycle_without_filtered_aircraft_from_standby() -> None:
+    assert "AKTYWNY — brak lotów po filtrach" in ui.INDEX_HTML
+    assert "żaden nie przeszedł teraz filtrów do geometrii" in ui.INDEX_HTML
+    assert "PROBLEM / brak świeżych cykli" in ui.INDEX_HTML
+    assert "STANDBY / sprawdź" not in ui.INDEX_HTML
+
+
 def test_dashboard_filter_funnel_is_clickable() -> None:
     assert "setFunnelFocus('status'" in ui.INDEX_HTML
     assert "showTab('logs')" in ui.INDEX_HTML
@@ -142,6 +149,7 @@ def test_alerts_expose_travel_margin_and_validation(monkeypatch) -> None:
     assert result["summary"] == {
         "alerts": 1,
         "events": 1,
+        "watch": 0,
         "early": 1,
         "confirmed": 0,
         "last_chance": 0,

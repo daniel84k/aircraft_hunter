@@ -219,6 +219,72 @@ def test_notification_convergence_resets_when_time_moves() -> None:
     assert reason == "TRANSIT_TIME_MOVED"
 
 
+def test_notification_convergence_rejects_cumulative_time_drift() -> None:
+    settings = replace(
+        load_settings(),
+        notification_consecutive_cycles=3,
+        notification_max_time_shift_seconds=5,
+    )
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.transit_time_utc = now + timedelta(minutes=5)
+    tracker = {}
+
+    update_candidate_convergence(candidate, tracker, settings, now)
+    candidate.transit_time_utc += timedelta(seconds=4)
+    _, count2, reason2 = update_candidate_convergence(
+        candidate,
+        tracker,
+        settings,
+        now + timedelta(seconds=10),
+    )
+    candidate.transit_time_utc += timedelta(seconds=4)
+    ready3, count3, reason3 = update_candidate_convergence(
+        candidate,
+        tracker,
+        settings,
+        now + timedelta(seconds=20),
+    )
+
+    assert (count2, reason2) == (2, "CONVERGED")
+    assert ready3 is False
+    assert count3 == 1
+    assert reason3 == "TRANSIT_TIME_MOVED"
+
+
+def test_notification_convergence_rejects_cumulative_observer_drift() -> None:
+    settings = replace(
+        load_settings(),
+        notification_consecutive_cycles=3,
+        notification_max_observer_shift_km=0.5,
+    )
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)
+    candidate = _candidate(settings, score=0.8, separation=0.05, distance=1.0, body_elevation=20)
+    candidate.transit_time_utc = now + timedelta(minutes=5)
+    tracker = {}
+
+    update_candidate_convergence(candidate, tracker, settings, now)
+    candidate.observer_lat += 0.003
+    _, count2, reason2 = update_candidate_convergence(
+        candidate,
+        tracker,
+        settings,
+        now + timedelta(seconds=10),
+    )
+    candidate.observer_lat += 0.003
+    ready3, count3, reason3 = update_candidate_convergence(
+        candidate,
+        tracker,
+        settings,
+        now + timedelta(seconds=20),
+    )
+
+    assert (count2, reason2) == (2, "CONVERGED")
+    assert ready3 is False
+    assert count3 == 1
+    assert reason3 == "OBSERVER_POINT_MOVED"
+
+
 def test_notification_uses_early_then_confirmed_phase() -> None:
     settings = replace(
         load_settings(),
@@ -250,29 +316,46 @@ def test_strong_unstable_candidate_sends_watch_phase() -> None:
     settings = replace(
         load_settings(),
         watch_notifications_enabled=True,
-        watch_min_score=0.75,
-        watch_max_offset_body_diameters=0.10,
+        watch_min_score=0.80,
+        watch_max_offset_body_diameters=0.05,
         watch_min_lead_seconds=180,
+        watch_min_consecutive_cycles=2,
     )
     candidate = _candidate(settings, score=0.8, separation=0.045 * 2 * 0.2725, distance=1.5, body_elevation=20)
     candidate.status = "OBSERVATION_CANDIDATE"
 
-    assert candidate_watch_phase(candidate, "TRANSIT_TIME_MOVED", settings) == "WATCH"
-    assert candidate_watch_phase(candidate, "OBSERVER_POINT_MOVED", settings) == "WATCH"
+    assert candidate_watch_phase(candidate, 1, "TRANSIT_TIME_MOVED", settings) is None
+    assert candidate_watch_phase(candidate, 2, "TRANSIT_TIME_MOVED", settings) == "WATCH"
+    assert candidate_watch_phase(candidate, 2, "OBSERVER_POINT_MOVED", settings) == "WATCH"
+
+
+def test_extreme_watch_quality_can_send_without_two_cycles() -> None:
+    settings = replace(
+        load_settings(),
+        watch_min_score=0.80,
+        watch_max_offset_body_diameters=0.05,
+        watch_min_consecutive_cycles=2,
+        watch_instant_score=1.0,
+        watch_instant_max_offset_body_diameters=0.02,
+    )
+    candidate = _candidate(settings, score=1.0, separation=0.015 * 2 * 0.2725, distance=1.5, body_elevation=20)
+    candidate.status = "ALERT_READY"
+
+    assert candidate_watch_phase(candidate, 1, "OBSERVER_POINT_MOVED", settings) == "WATCH"
 
 
 def test_watch_phase_does_not_fire_for_weak_or_hard_rejected_candidates() -> None:
-    settings = replace(load_settings(), watch_min_score=0.75, watch_max_offset_body_diameters=0.10)
+    settings = replace(load_settings(), watch_min_score=0.80, watch_max_offset_body_diameters=0.05)
     candidate = _candidate(settings, score=0.7, separation=0.045 * 2 * 0.2725, distance=1.5, body_elevation=20)
     candidate.status = "OBSERVATION_CANDIDATE"
 
-    assert candidate_watch_phase(candidate, "TRANSIT_TIME_MOVED", settings) is None
+    assert candidate_watch_phase(candidate, 2, "TRANSIT_TIME_MOVED", settings) is None
     candidate.score = 0.8
     candidate.status = "REJECTED"
     candidate.rejection_reason = "LOW_SCORE"
-    assert candidate_watch_phase(candidate, "TRANSIT_TIME_MOVED", settings) is None
+    assert candidate_watch_phase(candidate, 2, "TRANSIT_TIME_MOVED", settings) is None
     candidate.status = "OBSERVATION_CANDIDATE"
-    assert candidate_watch_phase(candidate, "CYCLE_GAP", settings) is None
+    assert candidate_watch_phase(candidate, 2, "CYCLE_GAP", settings) is None
 
 
 def test_strict_airport_traffic_is_stored_without_notification() -> None:

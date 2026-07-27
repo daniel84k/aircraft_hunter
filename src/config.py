@@ -52,6 +52,9 @@ class Settings:
     watch_min_score: float
     watch_max_offset_body_diameters: float
     watch_min_lead_seconds: int
+    watch_min_consecutive_cycles: int
+    watch_instant_score: float
+    watch_instant_max_offset_body_diameters: float
     last_chance_max_lead_seconds: int
     telegram_candidate_cooldown_seconds: int
     telegram_max_candidates_per_cycle: int
@@ -148,9 +151,12 @@ def load_settings() -> Settings:
         notification_max_observer_shift_km=float(os.getenv("NOTIFICATION_MAX_OBSERVER_SHIFT_KM", "0.5")),
         notification_max_offset_worsening_diameters=float(os.getenv("NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "0.05")),
         watch_notifications_enabled=_get_bool("WATCH_NOTIFICATIONS_ENABLED", True),
-        watch_min_score=float(os.getenv("WATCH_MIN_SCORE", "0.75")),
-        watch_max_offset_body_diameters=float(os.getenv("WATCH_MAX_OFFSET_BODY_DIAMETERS", "0.10")),
+        watch_min_score=float(os.getenv("WATCH_MIN_SCORE", "0.80")),
+        watch_max_offset_body_diameters=float(os.getenv("WATCH_MAX_OFFSET_BODY_DIAMETERS", "0.05")),
         watch_min_lead_seconds=int(os.getenv("WATCH_MIN_LEAD_SECONDS", "180")),
+        watch_min_consecutive_cycles=int(os.getenv("WATCH_MIN_CONSECUTIVE_CYCLES", "2")),
+        watch_instant_score=float(os.getenv("WATCH_INSTANT_SCORE", "1.00")),
+        watch_instant_max_offset_body_diameters=float(os.getenv("WATCH_INSTANT_MAX_OFFSET_BODY_DIAMETERS", "0.02")),
         last_chance_max_lead_seconds=int(os.getenv("LAST_CHANCE_MAX_LEAD_SECONDS", "90")),
         telegram_candidate_cooldown_seconds=int(os.getenv("TELEGRAM_CANDIDATE_COOLDOWN_SECONDS", "900")),
         telegram_max_candidates_per_cycle=int(os.getenv("TELEGRAM_MAX_CANDIDATES_PER_CYCLE", "2")),

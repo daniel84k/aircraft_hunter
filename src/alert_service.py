@@ -63,7 +63,7 @@ def process_pending_alerts(storage: Storage, notifier: TelegramNotifier, setting
             convergence_enabled=convergence_enabled,
         )
         if notification_phase is None:
-            notification_phase = candidate_watch_phase(candidate, convergence_reason, settings)
+            notification_phase = candidate_watch_phase(candidate, convergence_count, convergence_reason, settings)
         if notification_phase is None:
             LOG.info(
                 "ALERT_SERVICE_DEFERRED | candidate_id=%s aircraft=%s body=%s status=%s "

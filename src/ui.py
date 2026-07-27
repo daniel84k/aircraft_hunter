@@ -13,6 +13,7 @@ import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from urllib.request import urlopen
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
@@ -193,12 +194,32 @@ INDEX_HTML = """<!doctype html>
 .body-direction-icon.moon .glyph { color:#172033; background:#dbeafe; }
     .body-direction-icon .caption { margin-top:3px; padding:3px 6px; color:white; background:rgba(7,11,20,.9); border-radius:6px; font-size:10px; font-weight:800; white-space:nowrap; }
     .map-key { padding:8px 10px; color:#e5edf9; background:rgba(7,11,20,.88); border:1px solid rgba(255,255,255,.2); border-radius:9px; font-size:10px; line-height:1.55; box-shadow:0 5px 18px rgba(0,0,0,.3); }
+    .sky-radar-layout { display:grid; grid-template-columns:minmax(360px,.95fr) minmax(300px,.55fr); gap:14px; align-items:stretch; }
+    .sky-radar-live { min-height:520px; display:grid; place-items:center; }
+    .sky-radar-svg { width:min(100%,620px); height:auto; aspect-ratio:1; display:block; overflow:visible; }
+    .radar-aircraft-dot { filter:drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
+    .radar-label { font-size:10px; fill:var(--muted); font-weight:800; letter-spacing:.04em; }
+    .radar-small { font-size:9px; fill:var(--faint); font-weight:750; }
+    .radar-popup-list { display:grid; gap:8px; }
+    .radar-row { display:grid; grid-template-columns:1fr auto; gap:10px; padding:9px 10px; border:1px solid var(--line); border-radius:11px; background:var(--surface-2); }
+    .radar-row-main { min-width:0; }
+    .radar-row-title { font-weight:820; }
+    .radar-row-meta { margin-top:3px; color:var(--muted); font-size:11px; line-height:1.45; }
+    .radar-row-value { text-align:right; font-weight:850; }
+    .radar-legend { display:flex; flex-wrap:wrap; gap:8px 12px; color:var(--muted); font-size:11px; margin-top:10px; }
+    .radar-legend span:before { content:""; display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:50%; background:currentColor; }
+    .radar-controls { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+    .radar-controls select { min-height:32px; padding:5px 28px 5px 9px; border-radius:8px; font-size:12px; }
+    .radar-mode { display:inline-flex; gap:3px; padding:3px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+    .radar-mode button { min-height:28px; padding:4px 9px; border:0; border-radius:7px; background:transparent; color:var(--muted); font-size:11px; }
+    .radar-mode button.active { color:#fff; background:var(--accent); box-shadow:0 3px 10px rgba(var(--accent-rgb),.24); }
+    .zenith-label { font-size:10px; fill:var(--faint); font-weight:900; letter-spacing:.12em; }
     @media(max-width:1280px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))} input{width:180px}}
     @media(max-width:900px){
       .app{grid-template-columns:1fr} aside{position:sticky;top:0;height:auto;padding:10px 12px;z-index:30;border-right:0;border-bottom:1px solid var(--line)} .brand{padding-bottom:10px;margin-bottom:7px}
       nav{display:flex;overflow:auto;padding-bottom:3px;gap:3px}.nav-label,.nav-section-title,.nav-details>summary,.sidebar-foot{display:none}.nav-section,.nav-details .nav-section{display:flex;margin:0}.nav-details{display:contents}.tab-btn{min-width:max-content;padding:9px 12px}.tab-btn:hover{transform:none}.tab-btn.active{box-shadow:inset 0 -2px var(--accent)}
       header{position:relative;min-height:auto;padding:14px;align-items:stretch;flex-direction:column}.header-left,.header-right{width:100%}.header-right{justify-content:flex-start}input{width:min(100%,260px)}
-      .content{padding:14px}.grid-2,.grid-3,.map-layout,.event-visuals{grid-template-columns:minmax(0,1fr)}.map-frame{height:58dvh;min-height:380px}.detail{max-height:none}.event-map{height:390px}.life-cycle-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.panel-head{align-items:flex-start;flex-wrap:wrap}.chart-legend{flex-wrap:wrap}
+      .content{padding:14px}.grid-2,.grid-3,.map-layout,.event-visuals,.sky-radar-layout{grid-template-columns:minmax(0,1fr)}.map-frame{height:58dvh;min-height:380px}.detail{max-height:none}.event-map{height:390px}.life-cycle-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.panel-head{align-items:flex-start;flex-wrap:wrap}.chart-legend{flex-wrap:wrap}.sky-radar-live{min-height:420px}
     }
     @media(max-width:600px){
       body{font-size:12px}.brand{display:none}aside{padding:7px 8px}nav{padding-bottom:1px}.tab-btn{padding:8px 10px}
@@ -258,6 +279,11 @@ const tabGroups = [
 ];
 const tabs = tabGroups.flatMap(group => group.items);
 let active = 'overview', timer = null, lastData = {}, refreshInFlight = false, pendingRefresh = false, eventFilter = 'all', funnelFocus = null;
+const savedRadarRange = localStorage.getItem('radarRangeNm');
+let radarRangeNm = savedRadarRange === 'all' ? Infinity : Number(savedRadarRange || 150);
+let radarMode = localStorage.getItem('radarMode') || 'sky';
+let radarScreenPositions = new Map();
+const radarAnimationMs = 1600;
 let operationalRange = 'today';
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = v => v ? new Date(v).toLocaleString('pl-PL') : '-';
@@ -318,6 +344,8 @@ const alertPhaseLabel = value => ({WATCH:'Obserwuj',EARLY:'Wczesny',CONFIRMED:'P
 const alertPhaseClass = value => ({WATCH:'warn',EARLY:'warn',CONFIRMED:'good',BETTER:'good',LAST_CHANCE:'bad'}[String(value||'').toUpperCase()]||'good');
 const durationLabel = value => {if(value===null||value===undefined||Number.isNaN(Number(value)))return '—';const raw=Math.round(Number(value)),sign=raw<0?'-':'',seconds=Math.abs(raw),minutes=Math.floor(seconds/60),rest=seconds%60;return minutes?`${sign}${minutes} min ${rest?rest+' s':''}`.trim():`${sign}${rest} s`;};
 function relativeTime(value) { const seconds=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/1000)); return seconds<60?`${seconds} s temu`:seconds<3600?`${Math.round(seconds/60)} min temu`:`${Math.round(seconds/3600)} godz. temu`; }
+function setRadarRange(value){ radarRangeNm = value === 'all' ? Infinity : Number(value || 150); localStorage.setItem('radarRangeNm', Number.isFinite(radarRangeNm) ? String(radarRangeNm) : 'all'); renderRadar(); }
+function setRadarMode(value){ radarMode = value === 'range' ? 'range' : 'sky'; localStorage.setItem('radarMode', radarMode); renderRadar(); }
 async function refreshAll() {
   if (refreshInFlight) { pendingRefresh = true; return; }
   refreshInFlight = true;
@@ -331,7 +359,10 @@ async function refreshAll() {
       next.alerts = await getJson('/api/alerts?' + q);
     } else if (requestedActive === 'maptab') {
       next.mapData = await getJson('/api/map?' + q);
-    } else if (requestedActive === 'radar') next.radar = await getJson('/api/radar?' + q);
+    } else if (requestedActive === 'radar') {
+      next.radar = await getJson('/api/radar?' + q);
+      next.mapData = await getJson('/api/map?' + q);
+    }
     else if (requestedActive === 'candidates') next.events = await getJson('/api/events?' + q);
     else if (requestedActive === 'runs') next.runs = await getJson('/api/runs?' + q);
     else if (requestedActive === 'aircraft') next.aircraft = await getJson('/api/aircraft?' + q);
@@ -378,6 +409,7 @@ function renderRadar() {
     ${metric('Odrzucone', num(s.miss), s.miss ? 'bad' : '')}
     ${metric('Najlepszy score', s.best_score == null ? '—' : num(s.best_score, 2), Number(s.best_score || 0) >= Number(lastData.overview?.alert_min_score || 0.7) ? 'warn' : '')}
   </div>
+  ${renderSkyRadar(lastData.mapData || {observer:{}, items: [], celestial: []})}
   <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Trend RADAR</h2><span class="muted">liczba zdarzeń geometrycznych w czasie</span></div><span class="muted">okno: ${esc(range.options[range.selectedIndex]?.text || range.value)}</span></div>${bars((s.trend || []), 'count')}</div>
   <div class="grid-2">
     <div class="panel" style="margin-top:14px"><div class="panel-head"><div><h2>Radar events</h2><span class="muted">osobna warstwa geometryczna, niezależna od alertów</span></div><a href="/api/export?type=radar&${params()}">CSV</a></div>${table(headers, data.items || [], {h:720})}</div>
@@ -393,6 +425,160 @@ function renderRadar() {
     </div>
   </div>`;
 }
+const earthRadiusM = 6371000;
+const deg = value => Number(value) * Math.PI / 180;
+const wrapAz = value => (Number(value || 0) % 360 + 360) % 360;
+function aircraftAltAz(row, observer) {
+  const lat = Number(row.lat), lon = Number(row.lon), altM = Number(row.altitude_ft || 0) * 0.3048;
+  const obsLat = Number(observer.lat), obsLon = Number(observer.lon), obsAltM = Number(observer.alt_m || observer.alt || 0);
+  if (![lat, lon, obsLat, obsLon].every(Number.isFinite)) return null;
+  const phi = deg(obsLat), lambda = deg(obsLon);
+  const cosPhi = Math.cos(phi), sinPhi = Math.sin(phi), cosLambda = Math.cos(lambda), sinLambda = Math.sin(lambda);
+  const observerR = earthRadiusM + obsAltM;
+  const ox = observerR * cosPhi * cosLambda;
+  const oy = observerR * cosPhi * sinLambda;
+  const oz = observerR * sinPhi;
+  const targetR = earthRadiusM + altM;
+  const tPhi = deg(lat), tLambda = deg(lon);
+  const tx = targetR * Math.cos(tPhi) * Math.cos(tLambda);
+  const ty = targetR * Math.cos(tPhi) * Math.sin(tLambda);
+  const tz = targetR * Math.sin(tPhi);
+  const dx = tx - ox, dy = ty - oy, dz = tz - oz;
+  const east = -sinLambda * dx + cosLambda * dy;
+  const north = -sinPhi * cosLambda * dx - sinPhi * sinLambda * dy + cosPhi * dz;
+  const up = cosPhi * cosLambda * dx + cosPhi * sinLambda * dy + sinPhi * dz;
+  const distance = Math.sqrt(east * east + north * north + up * up);
+  if (!distance) return null;
+  return {
+    alt: Math.asin(up / distance) * 180 / Math.PI,
+    az: wrapAz(Math.atan2(east, north) * 180 / Math.PI),
+    distanceKm: distance / 1000
+  };
+}
+function radarPoint(az, alt, cx=260, cy=260, radius=220) {
+  const clampedAlt = Math.max(0, Math.min(90, Number(alt || 0)));
+  const r = radius * (1 - clampedAlt / 90);
+  const a = deg(az);
+  return {x: cx + r * Math.sin(a), y: cy - r * Math.cos(a), r};
+}
+function bearingJs(lat1, lon1, lat2, lon2) {
+  const p1 = deg(lat1), p2 = deg(lat2), dl = deg(Number(lon2) - Number(lon1));
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return wrapAz(Math.atan2(y, x) * 180 / Math.PI);
+}
+function rangeRadarPoint(row, observer, maxNm, cx=260, cy=260, radius=220) {
+  const bearing = bearingJs(observer.lat, observer.lon, row.lat, row.lon);
+  const distanceNm = Number(row.sky?.distanceKm || 0) / 1.852;
+  const effectiveMax = Number.isFinite(maxNm) ? Math.max(1, maxNm) : Math.max(50, distanceNm);
+  const r = Math.min(radius, radius * distanceNm / effectiveMax);
+  const a = deg(bearing);
+  return {x: cx + r * Math.sin(a), y: cy - r * Math.cos(a), r, bearing, distanceNm};
+}
+function angularSep(aAlt, aAz, bAlt, bAz) {
+  const s1 = deg(aAlt), s2 = deg(bAlt), da = deg(Number(bAz) - Number(aAz));
+  const cos = Math.sin(s1) * Math.sin(s2) + Math.cos(s1) * Math.cos(s2) * Math.cos(da);
+  return Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+}
+function renderSkyRadar(mapData) {
+  const observer = mapData.observer || {};
+  const bodies = (mapData.celestial || []).filter(b => Number(b.elevation_deg) > -1);
+  const allAircraft = (mapData.items || []).map(a => ({...a, sky: aircraftAltAz(a, observer)})).filter(a => a.sky && a.sky.alt > -2);
+  const aircraft = allAircraft.filter(a => !Number.isFinite(radarRangeNm) || a.sky.distanceKm <= radarRangeNm * 1.852);
+  const closest = [];
+  for (const a of aircraft) {
+    for (const b of bodies) {
+      const sep = angularSep(a.sky.alt, a.sky.az, Number(b.elevation_deg), Number(b.azimuth_deg));
+      closest.push({aircraft:a, body:b, sep});
+    }
+  }
+  closest.sort((a,b) => a.sep - b.sep);
+  const rings = [0, 30, 60, 90].map(alt => {
+    const rr = 220 * (1 - alt / 90);
+    return `<circle cx="260" cy="260" r="${rr}" fill="none" stroke="rgba(148,163,184,.20)" stroke-width="1"/><text x="263" y="${260-rr+13}" class="radar-small">${alt}°</text>`;
+  }).join('');
+  const bodySvg = bodies.map(b => {
+    const p = radarPoint(Number(b.azimuth_deg), Number(b.elevation_deg));
+    const isSun = b.body === 'Sun';
+    return `<g>
+      <line x1="260" y1="260" x2="${p.x}" y2="${p.y}" stroke="${isSun?'#f59e0b':'#8b7cff'}" stroke-width="1.5" stroke-dasharray="6 7" opacity=".75"/>
+      <circle cx="${p.x}" cy="${p.y}" r="13" fill="${isSun?'#f59e0b':'#dbeafe'}" stroke="white" stroke-width="2"/>
+      <text x="${p.x}" y="${p.y+4}" text-anchor="middle" font-size="16" font-weight="900" fill="${isSun?'#fff7d6':'#172033'}">${isSun?'☀':'☾'}</text>
+      <text x="${p.x}" y="${p.y+27}" text-anchor="middle" class="radar-label">${bodyLabel(b.body)} ${num(b.elevation_deg,1)}°</text>
+    </g>`;
+  }).join('');
+  const selectedRange = Number.isFinite(radarRangeNm) ? String(radarRangeNm) : 'all';
+  const radarLayoutKey = `${radarMode}:${selectedRange}`;
+  const nextRadarScreenPositions = new Map();
+  const aircraftSvg = aircraft.map(a => {
+    const p = radarMode === 'range' ? rangeRadarPoint(a, observer, radarRangeNm) : radarPoint(a.sky.az, a.sky.alt);
+    const positionKey = `${radarLayoutKey}:${a.icao || a.callsign || ''}`;
+    const previous = radarScreenPositions.get(positionKey);
+    const dx = previous ? previous.x - p.x : 0;
+    const dy = previous ? previous.y - p.y : 0;
+    const moved = previous && Number.isFinite(dx) && Number.isFinite(dy) && Math.hypot(dx, dy) > 0.5 && Math.hypot(dx, dy) < 260;
+    const animation = moved ? `<animateTransform attributeName="transform" type="translate" from="${dx.toFixed(2)} ${dy.toFixed(2)}" to="0 0" dur="${radarAnimationMs}ms" begin="0s" fill="freeze" calcMode="spline" keySplines="0.2 0 0.2 1"/>` : '';
+    nextRadarScreenPositions.set(positionKey, {x: p.x, y: p.y});
+    const selected = a.map_event === 'GEOMETRY_SELECTED';
+    const color = selected ? '#5eead4' : a.map_event === 'GEOMETRY_NO_ALIGNMENT' ? '#f59e0b' : a.map_event === 'GEOMETRY_SKIPPED' ? '#fb7185' : '#0ea5e9';
+    const track = wrapAz(a.track_deg || 0);
+    const size = selected ? 7 : 6;
+    const label = esc(a.callsign || a.icao || '');
+    return `<g class="radar-aircraft-dot">
+      ${animation}
+      <g transform="rotate(${track} ${p.x} ${p.y})">
+        <line x1="${p.x}" y1="${p.y - size - 6}" x2="${p.x}" y2="${p.y - size - 17}" stroke="${color}" stroke-width=".8" stroke-linecap="round" stroke-dasharray="3 4" opacity=".65"/>
+        <line x1="${p.x}" y1="${p.y - size}" x2="${p.x}" y2="${p.y + size}" stroke="${color}" stroke-width="1.25" stroke-linecap="round">
+          <title>${esc(a.callsign || a.icao)} · kurs ${num(track,0)}° · Alt ${num(a.sky.alt,1)}° · Az ${num(a.sky.az,0)}° · dystans ${num(a.sky.distanceKm,1)} km${radarMode==='range' ? ` · bearing ${num(p.bearing,0)}°` : ''}</title>
+        </line>
+        <line x1="${p.x - size * .35}" y1="${p.y - size * .1}" x2="${p.x + size * .35}" y2="${p.y - size * .1}" stroke="${color}" stroke-width="1.25" stroke-linecap="round"/>
+        <line x1="${p.x - size * .22}" y1="${p.y + size * .68}" x2="${p.x + size * .22}" y2="${p.y + size * .68}" stroke="${color}" stroke-width="1" stroke-linecap="round"/>
+        <circle cx="${p.x}" cy="${p.y - size - 2.5}" r="1" fill="${color}" opacity=".9"/>
+      </g>
+      <text x="${p.x + 5}" y="${p.y - 4}" font-size="7" font-weight="800" fill="${color}" stroke="#03101d" stroke-width="1.7" paint-order="stroke" opacity=".82">${label}</text>
+    </g>`;
+  }).join('');
+  radarScreenPositions = nextRadarScreenPositions;
+  const rows = closest.slice(0, 8).map(item => {
+    const a = item.aircraft, b = item.body;
+    return `<div class="radar-row">
+      <div class="radar-row-main"><div class="radar-row-title">${esc(a.callsign || a.icao || '-')} → ${bodyLabel(b.body)}</div>
+      <div class="radar-row-meta">teraz: alt ${num(a.sky.alt,1)}° / az ${num(a.sky.az,0)}° · dystans ${num(a.sky.distanceKm,1)} km<br>${esc(a.map_event || 'pozycja live')} ${a.map_reason ? '· '+esc(a.map_reason) : ''}</div></div>
+      <div class="radar-row-value">${num(item.sep,2)}°</div>
+    </div>`;
+  }).join('') || '<div class="muted">Brak samolotów nad horyzontem w aktualnym widoku radaru.</div>';
+  const rangeOptions = [50,100,150,200,300].map(v => `<option value="${v}" ${selectedRange===String(v)?'selected':''}>${v} NM</option>`).join('') + `<option value="all" ${selectedRange==='all'?'selected':''}>wszystkie</option>`;
+  const rangeRings = radarMode === 'range'
+    ? [0.25, 0.5, 0.75, 1].map(f => {
+        const rr = 220 * f, label = Number.isFinite(radarRangeNm) ? `${Math.round(radarRangeNm * f)} NM` : '';
+        return `<circle cx="260" cy="260" r="${rr}" fill="none" stroke="rgba(148,163,184,.20)" stroke-width="1"/><text x="263" y="${260-rr+13}" class="radar-small">${label}</text>`;
+      }).join('')
+    : rings;
+  const bodyLayer = radarMode === 'sky' ? bodySvg : '';
+  const centerLabel = radarMode === 'sky' ? 'ZENIT' : 'TY';
+  const subtitle = radarMode === 'sky'
+    ? 'widok azymut/elewacja: środek = zenit, krawędź = horyzont'
+    : 'widok zasięgu: środek = obserwator, promień = dystans NM';
+  return `<div class="panel" style="margin-top:14px">
+    <div class="panel-head"><div><h2>Radar live</h2><span class="muted">${subtitle} · odświeżanie: ${esc(refresh.options[refresh.selectedIndex]?.text || refresh.value)}</span></div>
+      <div class="radar-controls"><div class="radar-mode"><button class="${radarMode==='sky'?'active':''}" onclick="setRadarMode('sky')">Niebo</button><button class="${radarMode==='range'?'active':''}" onclick="setRadarMode('range')">Zasięg</button></div><span class="muted">${num(aircraft.length)} / ${num(allAircraft.length)} nad horyzontem</span><label class="muted">Zasięg <select onchange="setRadarRange(this.value)">${rangeOptions}</select></label></div></div>
+    <div class="sky-radar-layout">
+      <div class="sky-radar-live">
+        <svg class="sky-radar-svg" viewBox="0 0 520 520" role="img" aria-label="Radar nieba">
+          <defs><radialGradient id="radarSky" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#12233a"/><stop offset="100%" stop-color="#050b15"/></radialGradient></defs>
+          <circle cx="260" cy="260" r="222" fill="url(#radarSky)" stroke="rgba(148,163,184,.35)" stroke-width="2"/>
+          ${rangeRings}
+          <line x1="260" y1="38" x2="260" y2="482" stroke="rgba(148,163,184,.13)"/><line x1="38" y1="260" x2="482" y2="260" stroke="rgba(148,163,184,.13)"/>
+          <circle cx="260" cy="260" r="3" fill="rgba(148,163,184,.7)"/><text x="260" y="278" text-anchor="middle" class="zenith-label">${centerLabel}</text>
+          <text x="260" y="24" text-anchor="middle" class="radar-label">N</text><text x="500" y="264" text-anchor="middle" class="radar-label">E</text><text x="260" y="512" text-anchor="middle" class="radar-label">S</text><text x="20" y="264" text-anchor="middle" class="radar-label">W</text>
+          ${bodyLayer}${aircraftSvg}
+        </svg>
+        <div class="radar-legend"><span style="color:#22c55e">wybrane</span><span style="color:#f59e0b">brak przecięcia</span><span style="color:#ef4444">poza kierunkiem</span><span style="color:#38bdf8">pozycja live</span></div>
+      </div>
+      <div><h2>Najbliżej tarczy teraz</h2><div class="muted" style="margin-bottom:10px;line-height:1.5">To nie jest alert predykcyjny. To szybki podgląd aktualnego położenia samolotów względem Słońca/Księżyca na niebie.</div><div class="radar-popup-list">${rows}</div></div>
+    </div>
+  </div>`;
+}
 function renderOverview() {
   const o = lastData.overview;
   const alertsData = lastData.alerts || {summary:{},items:[]};
@@ -400,6 +586,13 @@ function renderOverview() {
   const t=o.totals||{}, events=o.top_events||[], latest=o.latest_run||{};
   const runAge=latest.finished_at ? (Date.now()-new Date(latest.finished_at).getTime())/1000 : null;
   const systemOk=runAge!=null && runAge<180;
+  const analyzedNow=Number(latest.aircraft_count_analyzed || 0);
+  const fetchedNow=Number(latest.aircraft_count_total || 0);
+  const systemLabel=systemOk ? (analyzedNow>0 ? 'AKTYWNY' : 'AKTYWNY — brak lotów po filtrach') : 'PROBLEM / brak świeżych cykli';
+  const systemKind=systemOk ? 'good' : 'bad';
+  const cycleText=systemOk
+    ? `Ostatni cykl zakończył się ${relativeTime(latest.finished_at)}. ${analyzedNow>0?`Analizowanych po filtrach: ${num(analyzedNow)}.`:`Pobrano ${num(fetchedNow)} samolotów, ale żaden nie przeszedł teraz filtrów do geometrii.`}`
+    : 'Brak świeżo zakończonego cyklu — to może oznaczać problem usługi.';
   const alertCount = Number(alertSummary.alerts ?? t.alerts ?? 0);
   const hitCount = Number(alertSummary.hit || 0);
   const missCount = Number(alertSummary.miss || 0);
@@ -423,9 +616,9 @@ function renderOverview() {
     {name:'Wynik',fn:r=>`<span class="pill ${validationClass(r.validation_result)}">${esc(validationLabel(r.validation_result||'NO_DATA'))}</span><div class="reason">${r.actual_offset_body_diameters==null?'czeka na próbki ADS-B':`offset ADS-B ${num(r.actual_offset_body_diameters,3)}`}</div>`},
     {name:'',fn:r=>`<button onclick="openEvent(${Number(r.candidate_id)})">Analiza</button>`}
   ];
-  overview.innerHTML = `<div class="decision"><div class="decision-icon">${alertCount?'✓':'i'}</div><div><h2>Dzisiaj: alerty i walidacja</h2><p>${decision} ${systemOk?`Ostatni cykl zakończył się ${relativeTime(latest.finished_at)}.`:'Brak świeżo zakończonego cyklu — może to oznaczać standby albo problem usługi.'}</p></div></div>
+  overview.innerHTML = `<div class="decision"><div class="decision-icon">${alertCount?'✓':'i'}</div><div><h2>Dzisiaj: alerty i walidacja</h2><p>${decision} ${cycleText}</p></div></div>
   <div class="metrics">
-    ${metric('Stan systemu',systemOk?'AKTYWNY':'STANDBY / sprawdź',systemOk?'good':'warn')}
+    ${metric('Stan systemu',systemLabel,systemKind)}
     ${metric('Alerty',num(alertCount),alertCount?'good':'')}
     ${metric('HIT alertów',num(hitCount),hitCount?'good':'')}
     ${metric('MISS alertów',num(missCount),missCount?'bad':'')}
@@ -1744,10 +1937,13 @@ def _aircraft(database_url: str, params: dict) -> list[dict]:
 
 def _map_data(database_url: str, params: dict) -> dict:
     start, end = _window(params)
+    query = _search(params)
     log_dir = os.getenv("LOG_DIR", "./logs")
-    analyzed_aircraft = _latest_analyzed_aircraft_from_logs(log_dir, start, end, _search(params))
+    analyzed_aircraft = _latest_analyzed_aircraft_from_logs(log_dir, start, end, query)
     analyzed_icaos = [item["icao"] for item in analyzed_aircraft]
     rows = _latest_observations_for_aircraft(database_url, analyzed_icaos) if analyzed_icaos else []
+    if not rows:
+        rows = _latest_observations_for_map(database_url, start, end, query)
     status_by_icao = {item["icao"]: item for item in analyzed_aircraft}
     for row in rows:
         status = status_by_icao.get((row.get("icao") or "").lower(), {})
@@ -1764,13 +1960,26 @@ def _map_data(database_url: str, params: dict) -> dict:
     env = _read_env_file()
     search_radius_nm = float(os.getenv("SEARCH_RADIUS_NM", env.get("SEARCH_RADIUS_NM", "120")))
     max_range_km = float(os.getenv("MAX_AIRCRAFT_RANGE_KM_FOR_GEOMETRY", env.get("MAX_AIRCRAFT_RANGE_KM_FOR_GEOMETRY", "120")))
+    live_rows = _live_observations_from_feeder(obs, search_radius_nm)
+    live_source = bool(live_rows)
+    if live_source:
+        rows = live_rows
+        analyzed_icaos = []
+        for row in rows:
+            row["map_event"] = "LIVE_ADSB"
+            row["map_reason"] = "pozycja live z adsb-feeder"
+            row["map_body"] = None
+    celestial = _celestial_for_map(log_dir, obs, start, end, max_range_km)
+    if not celestial:
+        celestial = _celestial_from_radar_events(database_url, obs, start, end, max_range_km)
     return {
         "observer": obs,
         "items": rows,
         "analyzed_icaos": analyzed_icaos,
-        "celestial": _celestial_for_map(log_dir, obs, start, end, max_range_km),
+        "celestial": celestial,
         "search_radius_nm": search_radius_nm,
         "max_range_km": max_range_km,
+        "live_source": live_source,
     }
 
 
@@ -1787,6 +1996,110 @@ def _latest_observations_for_aircraft(database_url: str, icaos: list[str]) -> li
         ORDER BY icao, observed_at DESC
         LIMIT 80
     """, (icaos,))
+
+
+def _latest_observations_for_map(database_url: str, start: datetime, end: datetime, query: str = "", limit: int = 120) -> list[dict]:
+    """Live map/radar fallback when no aircraft were selected from the latest log cycle."""
+    where_q = "AND (lower(icao) LIKE %s OR lower(COALESCE(callsign,'')) LIKE %s)" if query else ""
+    recent_start = max(start, datetime.now(timezone.utc) - timedelta(minutes=10))
+    args: list = [recent_start, end]
+    if query:
+        args.extend([f"%{query}%", f"%{query}%"])
+    args.append(limit)
+    rows = _query(database_url, f"""
+        SELECT DISTINCT ON (icao)
+          icao, callsign, aircraft_type, observed_at, lat, lon, altitude_ft, ground_speed_kt,
+          track_deg, vertical_rate_fpm,
+          count(*) OVER (PARTITION BY icao)::int AS points
+        FROM aircraft_observations
+        WHERE observed_at >= %s AND observed_at <= %s {where_q}
+        ORDER BY icao, observed_at DESC
+        LIMIT %s
+    """, tuple(args))
+    if rows:
+        return rows
+
+    args = [start, end]
+    if query:
+        args.extend([f"%{query}%", f"%{query}%"])
+    args.append(limit)
+    return _query(database_url, f"""
+        SELECT DISTINCT ON (icao)
+          icao, callsign, aircraft_type, observed_at, lat, lon, altitude_ft, ground_speed_kt,
+          track_deg, vertical_rate_fpm,
+          count(*) OVER (PARTITION BY icao)::int AS points
+        FROM aircraft_observations
+        WHERE observed_at >= %s AND observed_at <= %s {where_q}
+        ORDER BY icao, observed_at DESC
+        LIMIT %s
+    """, tuple(args))
+
+
+def _first_value(record: dict, *keys: str):
+    for key in keys:
+        value = record.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _live_observations_from_feeder(observer: dict, radius_nm: float, limit: int = 160) -> list[dict]:
+    try:
+        lat = float(observer["lat"])
+        lon = float(observer["lon"])
+    except (KeyError, TypeError, ValueError):
+        return []
+    env = _read_env_file()
+    base = os.getenv("UI_LIVE_ADSB_BASE", env.get("UI_LIVE_ADSB_BASE", "http://adsb-feeder:9988")).rstrip("/")
+    url = f"{base}/v2/lat/{lat:.5f}/lon/{lon:.5f}/dist/{float(radius_nm):.1f}"
+    try:
+        with urlopen(url, timeout=4) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        LOG.debug("Live ADS-B fetch failed url=%s error=%s", url, exc)
+        return []
+    fetched_at_raw = payload.get("fetched_at")
+    try:
+        fetched_at = datetime.fromisoformat(str(fetched_at_raw).replace("Z", "+00:00")) if fetched_at_raw else datetime.now(timezone.utc)
+    except ValueError:
+        fetched_at = datetime.now(timezone.utc)
+    rows = []
+    for record in payload.get("aircraft") or payload.get("ac") or []:
+        try:
+            ac_lat = _first_value(record, "lat")
+            ac_lon = _first_value(record, "lon")
+            icao = _first_value(record, "hex", "icao", "icao24")
+            track = _first_value(record, "track", "trak", "true_heading", "heading")
+            gs = _first_value(record, "gs", "ground_speed", "speed")
+            if ac_lat is None or ac_lon is None or icao is None or track is None:
+                continue
+            gs_value = float(gs or 0.0)
+            altitude = _first_value(record, "alt_geom", "alt_baro", "altitude")
+            if isinstance(altitude, str) and not altitude.replace(".", "", 1).isdigit():
+                altitude = None
+            if altitude is None and gs_value < 30.0:
+                continue
+            seen = float(record.get("seen_pos", record.get("seen", 0.0)) or 0.0)
+            observed_at = fetched_at - timedelta(seconds=max(0.0, seen))
+            rows.append({
+                "icao": str(icao).lower(),
+                "callsign": (str(_first_value(record, "flight", "callsign") or "").strip() or None),
+                "aircraft_type": _first_value(record, "t", "type", "aircraft_type"),
+                "observed_at": observed_at,
+                "lat": float(ac_lat),
+                "lon": float(ac_lon),
+                "altitude_ft": float(altitude) if altitude is not None else None,
+                "ground_speed_kt": gs_value,
+                "track_deg": float(track) % 360.0,
+                "vertical_rate_fpm": float(_first_value(record, "baro_rate", "geom_rate", "vertical_rate") or 0.0),
+                "points": 1,
+                "live_distance_nm": float(record["dst"]) if record.get("dst") is not None else None,
+                "live_seen_seconds": seen,
+            })
+        except (TypeError, ValueError):
+            continue
+    rows.sort(key=lambda item: (item.get("live_distance_nm") is None, item.get("live_distance_nm") or 999999.0))
+    return rows[:limit]
 
 
 def _latest_analyzed_aircraft_from_logs(log_dir: str, start: datetime, end: datetime, query: str = "") -> list[dict]:
@@ -1815,6 +2128,45 @@ def _latest_analyzed_aircraft_from_logs(log_dir: str, start: datetime, end: date
                 "body": event.get("closest_body") or event.get("body"),
             })
     return result[:80]
+
+
+def _celestial_from_radar_events(database_url: str, observer: dict, start: datetime, end: datetime, max_range_km: float) -> list[dict]:
+    try:
+        lat = float(observer["lat"])
+        lon = float(observer["lon"])
+    except (KeyError, TypeError, ValueError):
+        return []
+    rows = _query(database_url, """
+        SELECT DISTINCT ON (body)
+          body, body_azimuth_deg, body_elevation_deg, created_at
+        FROM radar_events
+        WHERE created_at >= %s AND created_at <= %s
+          AND body_azimuth_deg IS NOT NULL
+          AND body_elevation_deg IS NOT NULL
+        ORDER BY body, created_at DESC
+        LIMIT 2
+    """, (start, end))
+    result = []
+    for row in rows:
+        body = row.get("body")
+        if body not in {"Sun", "Moon"}:
+            continue
+        try:
+            azimuth = float(row["body_azimuth_deg"])
+            elevation = float(row["body_elevation_deg"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        marker_lat, marker_lon = destination_point(lat, lon, azimuth, max_range_km)
+        result.append({
+            "body": body,
+            "azimuth_deg": azimuth,
+            "elevation_deg": elevation,
+            "illumination": None,
+            "lat": marker_lat,
+            "lon": marker_lon,
+            "source_time": row.get("created_at"),
+        })
+    return result
 
 
 def _celestial_for_map(log_dir: str, observer: dict, start: datetime, end: datetime, max_range_km: float) -> list[dict]:
@@ -2117,6 +2469,7 @@ def _config_items() -> dict[str, str]:
         "NOTIFICATION_MAX_TIME_SHIFT_SECONDS", "NOTIFICATION_MAX_OBSERVER_SHIFT_KM",
         "NOTIFICATION_MAX_OFFSET_WORSENING_DIAMETERS", "WATCH_NOTIFICATIONS_ENABLED",
         "WATCH_MIN_SCORE", "WATCH_MAX_OFFSET_BODY_DIAMETERS", "WATCH_MIN_LEAD_SECONDS",
+        "WATCH_MIN_CONSECUTIVE_CYCLES", "WATCH_INSTANT_SCORE", "WATCH_INSTANT_MAX_OFFSET_BODY_DIAMETERS",
         "STANDBY_BODY_ELEVATION_DEG", "RUN_MODE", "UI_PORT",
     ]
     env = _read_env_file()

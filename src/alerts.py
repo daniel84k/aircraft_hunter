@@ -61,9 +61,9 @@ def format_alert(candidate: TransitCandidate, *, better: bool = False, phase: st
     if phase == "LAST_CHANCE":
         guidance = "Last chance   : quick look now; use current/nearby spot if travel is not realistic"
     elif phase == "EARLY":
-        guidance = "Observation   : early heads-up; go out and watch the object area"
+        guidance = "Observation   : early heads-up; point may still move — wait for CONFIRMED before travel"
     elif phase == "WATCH":
-        guidance = "Observation   : strong geometry but not stable yet; watch if you can"
+        guidance = "Observation   : geometry not stable; point is indicative only — do not navigate yet"
     elif phase == "CONFIRMED":
         guidance = "Observation   : confirmed geometry; use navigation if travel time allows"
     else:

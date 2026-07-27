@@ -575,12 +575,28 @@ class Storage:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
+                WITH per_run AS (
+                    SELECT
+                        created_at, transit_time_utc, observer_lat, observer_lon,
+                        offset_body_diameters,
+                        row_number() OVER (
+                            PARTITION BY prediction_run_id
+                            ORDER BY
+                                CASE WHEN status = 'ALERT_READY' THEN 0 ELSE 1 END,
+                                score DESC,
+                                offset_body_diameters ASC,
+                                confidence DESC,
+                                created_at DESC
+                        ) AS run_rank
+                    FROM transit_candidates
+                    WHERE lower(icao) = lower(%s)
+                      AND lower(body) = lower(%s)
+                      AND floor(extract(epoch from transit_time_utc) / %s)::bigint = %s
+                      AND status IN ('ALERT_READY', 'OBSERVATION_CANDIDATE')
+                )
                 SELECT created_at, transit_time_utc, observer_lat, observer_lon, offset_body_diameters
-                FROM transit_candidates
-                WHERE lower(icao) = lower(%s)
-                  AND lower(body) = lower(%s)
-                  AND floor(extract(epoch from transit_time_utc) / %s)::bigint = %s
-                  AND status IN ('ALERT_READY', 'OBSERVATION_CANDIDATE')
+                FROM per_run
+                WHERE run_rank = 1
                 ORDER BY created_at DESC
                 LIMIT %s
                 """,
@@ -599,12 +615,15 @@ class Storage:
 
         count = 1
         reason = "FIRST_OBSERVATION"
-        previous = rows[0]
+        anchor = rows[0]
+        previous = anchor
         for current in rows[1:]:
             gap_seconds = abs((previous[0] - current[0]).total_seconds())
-            time_shift = abs((previous[1] - current[1]).total_seconds())
-            observer_shift = haversine_distance_km(previous[2], previous[3], current[2], current[3])
-            offset_worsening = previous[4] - current[4]
+            # Keep the newest candidate as the convergence anchor. Comparing
+            # only adjacent rows accepts a slow but unbounded drift.
+            time_shift = abs((anchor[1] - current[1]).total_seconds())
+            observer_shift = haversine_distance_km(anchor[2], anchor[3], current[2], current[3])
+            offset_worsening = anchor[4] - current[4]
             if gap_seconds > max(30, max_gap_seconds):
                 reason = "CYCLE_GAP"
                 break

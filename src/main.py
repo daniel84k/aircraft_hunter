@@ -82,6 +82,9 @@ def update_candidate_convergence(
     consecutive = 1
     if previous is not None:
         gap_seconds = (now - previous.last_seen_at).total_seconds()
+        # Compare against the first sample in the current convergence run, not
+        # only against the immediately preceding cycle.  Pairwise checks let a
+        # slowly drifting ETA/observer point look permanently stable.
         time_shift = abs((candidate.transit_time_utc - previous.transit_time_utc).total_seconds())
         observer_shift = haversine_distance_km(
             previous.observer_lat,
@@ -101,14 +104,24 @@ def update_candidate_convergence(
         else:
             consecutive = previous.consecutive_cycles + 1
             reason = "CONVERGED"
-    tracker[key] = CandidateConvergence(
-        consecutive_cycles=consecutive,
-        last_seen_at=now,
-        transit_time_utc=candidate.transit_time_utc,
-        observer_lat=candidate.observer_lat,
-        observer_lon=candidate.observer_lon,
-        offset_body_diameters=candidate.offset_body_diameters,
-    )
+    if previous is not None and reason == "CONVERGED":
+        tracker[key] = CandidateConvergence(
+            consecutive_cycles=consecutive,
+            last_seen_at=now,
+            transit_time_utc=previous.transit_time_utc,
+            observer_lat=previous.observer_lat,
+            observer_lon=previous.observer_lon,
+            offset_body_diameters=previous.offset_body_diameters,
+        )
+    else:
+        tracker[key] = CandidateConvergence(
+            consecutive_cycles=consecutive,
+            last_seen_at=now,
+            transit_time_utc=candidate.transit_time_utc,
+            observer_lat=candidate.observer_lat,
+            observer_lon=candidate.observer_lon,
+            offset_body_diameters=candidate.offset_body_diameters,
+        )
     required = max(1, settings.notification_consecutive_cycles)
     return consecutive >= required, consecutive, reason
 
@@ -212,6 +225,7 @@ def candidate_notification_phase(
 
 def candidate_watch_phase(
     candidate: TransitCandidate,
+    convergence_count: int,
     convergence_reason: str,
     settings: Settings,
 ) -> str | None:
@@ -224,11 +238,18 @@ def candidate_watch_phase(
     lead_time = int((candidate.transit_time_utc - datetime.now(timezone.utc)).total_seconds())
     if lead_time < settings.watch_min_lead_seconds:
         return None
-    if candidate.score < settings.watch_min_score:
-        return None
-    if candidate.offset_body_diameters > settings.watch_max_offset_body_diameters:
-        return None
-    return "WATCH"
+    instant_quality = (
+        candidate.score >= settings.watch_instant_score
+        and candidate.offset_body_diameters <= settings.watch_instant_max_offset_body_diameters
+    )
+    if instant_quality:
+        return "WATCH"
+    confirmed_quality = (
+        candidate.score >= settings.watch_min_score
+        and candidate.offset_body_diameters <= settings.watch_max_offset_body_diameters
+        and convergence_count >= max(1, settings.watch_min_consecutive_cycles)
+    )
+    return "WATCH" if confirmed_quality else None
 
 
 def is_better_notification(
@@ -915,7 +936,7 @@ def run_cycle(
                 convergence_enabled=convergence_enabled,
             )
             if notification_phase is None:
-                notification_phase = candidate_watch_phase(candidate, convergence_reason, settings)
+                notification_phase = candidate_watch_phase(candidate, convergence_count, convergence_reason, settings)
             notification_ready = notification_phase is not None
             if eligible_for_notification and notification_ready:
                 if notification_phase == "WATCH":
