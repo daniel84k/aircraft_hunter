@@ -84,6 +84,7 @@ def _settings(**overrides) -> Settings:
         data_retention_enabled=True,
         data_retention_interval_seconds=3600,
         data_retention_observations_hours=48,
+        data_retention_radar_event_days=7,
         data_retention_rejected_candidate_days=7,
         data_retention_interesting_candidate_days=30,
         data_retention_prediction_run_days=14,
@@ -139,27 +140,33 @@ class FakeConnection:
 
 
 def test_data_retention_uses_normal_thresholds(monkeypatch) -> None:
-    conn = FakeConnection([1, 2, 3, 4, 5])
+    conn = FakeConnection([1, 2, 3, 4, 5, 6])
     monkeypatch.setattr(data_retention, "_free_mb", lambda _path: 5000)
 
     result = data_retention.run_data_retention(conn, _settings(), free_space_path="/tmp")
 
     assert result is not None
     assert result.emergency is False
-    assert result.total_deleted == 15
-    assert conn.commits == 5
+    assert result.total_deleted == 21
+    assert result.radar_events == 2
+    assert conn.commits == 6
     assert conn.rollbacks == 0
     params = [params for _sql, params in conn.cursor_obj.queries]
     assert params[0] == (30, 50000)
     assert params[1] == (7, 50000)
-    assert params[2][0] == 30
-    assert params[2][2] == 50000
-    assert params[3] == (14, 50000)
-    assert params[4] == (48, 50000)
+    assert params[2] == (7, 50000)
+    assert params[3][0] == 30
+    assert params[3][2] == 50000
+    assert params[4] == (14, 50000)
+    assert params[5] == (48, 50000)
+    rejected_sql = conn.cursor_obj.queries[2][0]
+    interesting_sql = conn.cursor_obj.queries[3][0]
+    assert "NOT EXISTS" in rejected_sql and "radar_events" in rejected_sql
+    assert "NOT EXISTS" in interesting_sql and "radar_events" in interesting_sql
 
 
 def test_data_retention_uses_emergency_thresholds(monkeypatch) -> None:
-    conn = FakeConnection([0, 7, 0, 0, 11])
+    conn = FakeConnection([0, 7, 0, 0, 0, 11])
     monkeypatch.setattr(data_retention, "_free_mb", lambda _path: 900)
 
     result = data_retention.run_data_retention(conn, _settings(), free_space_path="/tmp")
@@ -168,7 +175,8 @@ def test_data_retention_uses_emergency_thresholds(monkeypatch) -> None:
     assert result.emergency is True
     params = [params for _sql, params in conn.cursor_obj.queries]
     assert params[1] == (3, 50000)
-    assert params[4] == (24, 50000)
+    assert params[2] == (3, 50000)
+    assert params[5] == (24, 50000)
 
 
 def test_data_retention_can_be_disabled(monkeypatch) -> None:

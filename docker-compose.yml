@@ -25,11 +25,30 @@ services:
       ADSBFI_BASE: http://adsb-feeder:9988
       UI_ENABLED: "false"
       ALERT_NOTIFICATIONS_ENABLED: "false"
+      DATA_RETENTION_ENABLED: "false"
     depends_on:
       postgres:
         condition: service_healthy
       adsb-feeder:
         condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  retention:
+    build: .
+    command: ["python", "src/retention_service.py"]
+    env_file:
+      - .env
+    environment:
+      UI_ENABLED: "false"
+      ALERT_NOTIFICATIONS_ENABLED: "false"
+      DATA_RETENTION_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      radar:
+        condition: service_started
     restart: unless-stopped
     volumes:
       - ./logs:/app/logs

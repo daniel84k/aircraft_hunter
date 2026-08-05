@@ -84,6 +84,7 @@ class Settings:
     data_retention_enabled: bool
     data_retention_interval_seconds: int
     data_retention_observations_hours: int
+    data_retention_radar_event_days: int
     data_retention_rejected_candidate_days: int
     data_retention_interesting_candidate_days: int
     data_retention_prediction_run_days: int
@@ -186,6 +187,7 @@ def load_settings() -> Settings:
         data_retention_enabled=_get_bool("DATA_RETENTION_ENABLED", True),
         data_retention_interval_seconds=int(os.getenv("DATA_RETENTION_INTERVAL_SECONDS", "3600")),
         data_retention_observations_hours=int(os.getenv("DATA_RETENTION_OBSERVATIONS_HOURS", "48")),
+        data_retention_radar_event_days=int(os.getenv("DATA_RETENTION_RADAR_EVENT_DAYS", "7")),
         data_retention_rejected_candidate_days=int(os.getenv("DATA_RETENTION_REJECTED_CANDIDATE_DAYS", "7")),
         data_retention_interesting_candidate_days=int(os.getenv("DATA_RETENTION_INTERESTING_CANDIDATE_DAYS", "30")),
         data_retention_prediction_run_days=int(os.getenv("DATA_RETENTION_PREDICTION_RUN_DAYS", "14")),

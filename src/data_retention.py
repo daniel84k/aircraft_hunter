@@ -18,6 +18,7 @@ class RetentionResult:
     emergency: bool
     free_mb: int
     aircraft_observations: int
+    radar_events: int
     rejected_candidates: int
     interesting_candidates: int
     trajectory_snapshots: int
@@ -27,6 +28,7 @@ class RetentionResult:
     def total_deleted(self) -> int:
         return (
             self.aircraft_observations
+            + self.radar_events
             + self.rejected_candidates
             + self.interesting_candidates
             + self.trajectory_snapshots
@@ -98,6 +100,30 @@ def run_data_retention(conn, settings: Settings, *, free_space_path: str | None 
         (max(1, settings.data_retention_trajectory_snapshot_days),),
         batch_size,
     )
+    # Radar events are the high-volume diagnostic layer.  Delete them before
+    # candidates because radar_events.transit_candidate_id references
+    # transit_candidates and would otherwise make candidate retention fail.
+    radar_event_days = min(
+        max(1, settings.data_retention_radar_event_days),
+        max(1, rejected_days),
+    )
+    radar_events = _delete_in_batches(
+        conn,
+        """
+        WITH doomed AS (
+          SELECT id
+          FROM radar_events
+          WHERE created_at < now() - (%s * interval '1 day')
+          ORDER BY created_at ASC
+          LIMIT %s
+        )
+        DELETE FROM radar_events r
+        USING doomed
+        WHERE r.id = doomed.id
+        """,
+        (radar_event_days,),
+        batch_size,
+    )
     rejected_candidates = _delete_in_batches(
         conn,
         """
@@ -111,6 +137,9 @@ def run_data_retention(conn, settings: Settings, *, free_space_path: str | None 
             )
             AND NOT EXISTS (
               SELECT 1 FROM event_trajectory_snapshots s WHERE s.candidate_id = c.id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM radar_events r WHERE r.transit_candidate_id = c.id
             )
           ORDER BY c.created_at ASC
           LIMIT %s
@@ -136,6 +165,9 @@ def run_data_retention(conn, settings: Settings, *, free_space_path: str | None 
             AND NOT EXISTS (
               SELECT 1 FROM event_trajectory_snapshots s WHERE s.candidate_id = c.id
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM radar_events r WHERE r.transit_candidate_id = c.id
+            )
           ORDER BY c.created_at ASC
           LIMIT %s
         )
@@ -155,6 +187,9 @@ def run_data_retention(conn, settings: Settings, *, free_space_path: str | None 
           WHERE r.started_at < now() - (%s * interval '1 day')
             AND NOT EXISTS (
               SELECT 1 FROM transit_candidates c WHERE c.prediction_run_id = r.id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM radar_events e WHERE e.prediction_run_id = r.id
             )
           ORDER BY r.started_at ASC
           LIMIT %s
@@ -188,18 +223,20 @@ def run_data_retention(conn, settings: Settings, *, free_space_path: str | None 
         emergency=emergency,
         free_mb=free_mb,
         aircraft_observations=aircraft_observations,
+        radar_events=radar_events,
         rejected_candidates=rejected_candidates,
         interesting_candidates=interesting_candidates,
         trajectory_snapshots=trajectory_snapshots,
         prediction_runs=prediction_runs,
     )
     LOG.info(
-        "Data retention complete emergency=%s free_mb=%s deleted_observations=%s "
+        "Data retention complete emergency=%s free_mb=%s deleted_observations=%s deleted_radar_events=%s "
         "deleted_rejected_candidates=%s deleted_interesting_candidates=%s "
         "deleted_trajectory_snapshots=%s deleted_prediction_runs=%s",
         result.emergency,
         result.free_mb,
         result.aircraft_observations,
+        result.radar_events,
         result.rejected_candidates,
         result.interesting_candidates,
         result.trajectory_snapshots,

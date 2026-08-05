@@ -24,7 +24,15 @@ def connect(database_url: str, attempts: int = 30, delay_seconds: float = 2.0):
 def run_migrations(conn, migration_path: str = "migrations/001_init.sql") -> None:
     with open(migration_path, "r", encoding="utf-8") as fh:
         sql = fh.read()
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            # Every application container applies the same idempotent migration
+            # on startup.  Serialize those transactions so parallel container
+            # restarts cannot deadlock on PostgreSQL relation locks.
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (824190537,))
+            cur.execute(sql)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     LOG.info("Database migrations applied")

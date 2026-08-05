@@ -146,6 +146,12 @@ ON radar_events (transit_time_utc);
 CREATE INDEX IF NOT EXISTS idx_radar_events_aircraft_body_time
 ON radar_events (icao, body, transit_time_utc DESC);
 
+CREATE INDEX IF NOT EXISTS idx_radar_events_transit_candidate_id
+ON radar_events (transit_candidate_id);
+
+CREATE INDEX IF NOT EXISTS idx_radar_events_prediction_run_id
+ON radar_events (prediction_run_id);
+
 CREATE INDEX IF NOT EXISTS idx_prediction_runs_started_at
 ON prediction_runs (started_at DESC);
 
