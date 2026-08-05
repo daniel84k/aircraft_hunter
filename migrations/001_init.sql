@@ -101,6 +101,9 @@ ON transit_candidates (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_transit_candidates_status
 ON transit_candidates (status);
 
+CREATE INDEX IF NOT EXISTS idx_transit_candidates_prediction_run_id
+ON transit_candidates (prediction_run_id);
+
 CREATE TABLE IF NOT EXISTS radar_events (
     id BIGSERIAL PRIMARY KEY,
     prediction_run_id BIGINT REFERENCES prediction_runs(id),
@@ -160,6 +163,9 @@ ON alerts (dedupe_key);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_printed_at
 ON alerts (printed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_transit_candidate_id
+ON alerts (transit_candidate_id);
 
 CREATE TABLE IF NOT EXISTS transit_validation_state (
     singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
